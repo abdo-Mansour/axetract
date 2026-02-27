@@ -1,7 +1,14 @@
-from axetract import AXEPipeline
+from axetract import AXECleaner, AXEPruner,
+from axetract.cleaners import Trafilatura
+from litellm import LiteLLM
 
 
-if __name__ == "__main__":
-    pipeline = AXEPipeline(
-        
-    )
+pipeline = AXEpipeline(
+ LiteLLM(some parameters)
+)
+
+pipeline = AXEpipeline(
+ cleaner=Trafilatura()
+)
+
+pipeline = AXEpipeline()

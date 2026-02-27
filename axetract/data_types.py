@@ -15,14 +15,14 @@ class AXESample(BaseModel):
     
     original_html: str = "" 
     current_html: str = "" 
-    prediction: Optional[Any] = None 
+    prediction: Optional[dict] = None 
     xpaths: Optional[dict] = None
     
     status: Status = Status.PENDING
 
 class AXEResult(BaseModel):
     id: str
-    prediction: Any
+    prediction: Union[str,dict]
     xpaths: dict
     status: Status
     error: Optional[str] = None

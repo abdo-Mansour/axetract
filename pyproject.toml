@@ -1,7 +1,21 @@
 [project]
-name = "axe-extract"
+name = "Axetract"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = []
+
+license = { file = "LICENSE" }
+authors = [
+    {name="Khaled Alshaer", email = "khaled.w.alshaer@gmail.com"},
+    {name="Abdelrahman Mansour", email = "abdelrahman.f.mansour@gmail.com"},
+]
+
+[build-system]
+requires = ["uv_build>=0.10.6,<0.11.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "axetract"
+module-root = ""

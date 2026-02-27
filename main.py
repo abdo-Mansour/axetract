@@ -1,5 +1,5 @@
 def main():
-    print("Hello from axe-extract!")
+    print("Hello from axetract!")
 
 
 if __name__ == "__main__":

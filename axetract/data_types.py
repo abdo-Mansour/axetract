@@ -1,6 +1,11 @@
 from pydantic import BaseModel
 from typing import List, Optional, Any, Union
+from enum import Enum
 
+class Status(Enum):
+    PENDING = "pending"
+    SUCCESS = "success"
+    FAILED = "failed"
 
 class AXESample(BaseModel):
     id: str
@@ -13,5 +18,11 @@ class AXESample(BaseModel):
     prediction: Optional[Any] = None 
     xpaths: Optional[dict] = None
     
-    status: str = "pending" # pending, success, failed
+    status: Status = Status.PENDING
+
+class AXEResult(BaseModel):
+    id: str
+    prediction: Any
+    xpaths: dict
+    status: Status
     error: Optional[str] = None

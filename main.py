@@ -1,6 +1,7 @@
-def main():
-    print("Hello from axetract!")
+from axetract import AXEPipeline
 
 
 if __name__ == "__main__":
-    main()
+    pipeline = AXEPipeline(
+        
+    )

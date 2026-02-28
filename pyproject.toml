@@ -4,7 +4,7 @@ name = "axetract"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.11"
 license = { file = "LICENSE" }
 authors = [
     {name="Khaled Alshaer", email = "khaled.w.alshaer@gmail.com"},
@@ -13,7 +13,7 @@ authors = [
 
 # dependencies
 dependencies = [
-    "pydantic>=2.12.5",
+    "pydantic>=2.13.0b2",
 ]
 
 [dependency-groups]
@@ -30,4 +30,4 @@ requires = ["uv_build>=0.10.6,<0.11.0"]
 build-backend = "uv_build"
 [tool.uv.build-backend]
 module-name = "axetract"
-module-root = ""
+module-root = "src"

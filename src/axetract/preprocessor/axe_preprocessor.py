@@ -3,7 +3,8 @@ from typing import Any, Dict, List, Union
 import traceback
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 from axetract.utils.html_util import fetch_content, clean_html, chunk_html_content
-from axetract.data_types import AXESample
+from axetract.preprocessor.base_preprocessor import BasePreprocessor
+from axetract.data_types import AXESample, AXEChunk
 
 def _chunk_worker(args: tuple) -> Dict[str, Any]:
     sample, config, idx = args
@@ -42,19 +43,22 @@ def _chunk_worker(args: tuple) -> Dict[str, Any]:
         return idx, err_payload
 
 
-class AXEPreprocessor:
+class AXEPreprocessor(BasePreprocessor):
     
     def __init__(self,
+                 name: str = "AXEPreprocessor",
                  fetch_workers: int = 1,
                  cpu_workers: int = 1,
                  extra_remove_tags: List[str] = None,
                  strip_attrs: bool = True,
                  strip_links: bool = True,
                  keep_tags: bool = False,
-                 use_clean_rag: bool = False,
-                 use_clean_chunker: bool = False,
+                 use_clean_rag: bool = True,
+                 use_clean_chunker: bool = True,
                  chunk_size: int = 1000,
-                 attr_cutoff_len: int = 100):
+                 attr_cutoff_len: int = 100,
+                 disable_chunking: bool = False):
+        super().__init__(name)
         self.fetch_workers = fetch_workers
         self.cpu_workers = cpu_workers
 
@@ -66,9 +70,10 @@ class AXEPreprocessor:
         self.use_clean_chunker = use_clean_chunker
         self.chunk_size = chunk_size
         self.attr_cutoff_len = attr_cutoff_len
+        self.disable_chunking = disable_chunking
 
 
-    def process(self, batch: Union[AXESample,List[AXESample]]) -> List[AXESample]:
+    def __call__(self, batch: List[AXESample]) -> List[AXESample]:
         
         if isinstance(batch, AXESample):
             batch = [batch]
@@ -116,7 +121,9 @@ class AXEPreprocessor:
                 results[idx] = res
 
         for i, res in enumerate(results):
-            batch[i].chunks = res['chunks']
+            print( i , res)
+            batch[i].chunks = [AXEChunk(chunkid=chunk['chunkid'], content=chunk['chunkcontent']) for chunk in res['chunks']]
+            
         return batch
 
 

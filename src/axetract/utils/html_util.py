@@ -7,7 +7,6 @@ from typing import List, Dict, Optional, Union, Tuple, Set
 from difflib import SequenceMatcher
 
 from lxml import etree, html
-import polars as pl
 import copy
 
 class SmartHTMLProcessor:
@@ -261,10 +260,7 @@ def merge_html_chunks(chunks: List[str], fallback_content: str) -> str:
                     # print("CURRENT C",c)
                     if len(c) == 0:
                         continue
-                    if isinstance(c,pl.Series):
-                        merged_list.append((c[0], c[1]))
-                    else:
-                        merged_list.append((c['xpath'], c['content']))
+                    merged_list.append((c['xpath'], c['content']))
                     
             if len(merged_list) == 0:
                 print("FALLBACK USED")

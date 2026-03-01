@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from axetract.data_types import AXESample
 from typing import List
 
-class Pruner(ABC):
+class BasePostprocessor(ABC):
     def __init__(self, name: str):
         self.name = name
 

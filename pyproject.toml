@@ -4,7 +4,7 @@ name = "axetract"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = { file = "LICENSE" }
 authors = [
     {name="Khaled Alshaer", email = "khaled.w.alshaer@gmail.com"},
@@ -13,7 +13,11 @@ authors = [
 
 # dependencies
 dependencies = [
+    "html-chunking>=0.0.4",
+    "htmlrag>=0.1.1",
+    "json-repair>=0.58.1",
     "pydantic>=2.13.0b2",
+    "vllm>=0.16.0",
 ]
 
 [dependency-groups]

@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from axetract.data_types import AXESample
 from typing import List
 
-class Preprocessor(ABC):
+class BaseExtractor(ABC):
     def __init__(self, name: str):
         self.name = name
 

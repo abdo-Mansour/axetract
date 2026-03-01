@@ -2,7 +2,6 @@ import json
 import re
 from json_repair import repair_json
 from typing import Any, Dict, Iterable, List, Optional, Union
-import polars as pl
 
 def is_schema(text: str) -> bool:
     # Case 1: Python dict_keys

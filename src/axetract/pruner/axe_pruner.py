@@ -191,7 +191,7 @@ class AXEPruner(BasePruner):
         prompts = list(prompts)
         
         # 3. Batch GPU Inference (Fast)
-        llm_results = self.llm_pruner_client.call_batch(prompts, max_workers=max_workers, adapter_name="pruner")
+        llm_results = self.llm_pruner_client.call_batch(prompts, adapter_name="pruner")
         
         # 4. Process Results (Light CPU work)
         final_pruned_contents = [] # List of list of xpaths

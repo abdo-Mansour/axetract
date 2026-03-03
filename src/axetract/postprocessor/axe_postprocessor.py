@@ -1,6 +1,6 @@
 import os
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
-from typing import List, Dict, Any, Union, Tuple
+from typing import List, Dict, Any, Union, Tuple, Optional
 
 from axetract.utils.json_util import extract_and_repair_json, is_schema
 from axetract.utils.html_util import find_closest_html_node, normalize_html_text
@@ -89,11 +89,11 @@ def _safe_extract_worker(response: str, content: str, query: Any, extract_exact:
 # CLASS DEFINITION
 # ==============================================================================
 
-class AXEPostProcessor(BasePostprocessor):
+class AXEPostprocessor(BasePostprocessor):
     """
     Optimized PostProcessor for high-throughput batch processing.
     """
-    def __init__(self, name: str = "axe_postprocessor", exact_extraction: bool = False):
+    def __init__(self, name: str = "axe_postprocessor", exact_extraction: bool = True):
         super().__init__(name=name)
         self._exact_extraction = exact_extraction
 
@@ -132,6 +132,9 @@ class AXEPostProcessor(BasePostprocessor):
 
         # Re-assemble results in the main process
         for sample, (parsed, xpaths) in zip(samples, parsed_results):
+            print("Sample: ", sample)
+            print("Parsed: ", parsed)
+            print("Xpaths: ", xpaths)
             sample.prediction = parsed
             sample.xpaths = xpaths
             

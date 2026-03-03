@@ -38,6 +38,18 @@ class AXEExtractor(BaseExtractor):
         def build_prompt(data):
             query = data.query or data.schema_model
             content = data.current_html
+            
+            # Convert Pydantic type to JSON schema if needed
+            if query is not None and not isinstance(query, str):
+                from pydantic import BaseModel
+                if isinstance(query, type) and issubclass(query, BaseModel):
+                    # For Pydantic V2 use model_json_schema, for V1 use schema_json
+                    if hasattr(query, 'model_json_schema'):
+                        import json
+                        query = json.dumps(query.model_json_schema())
+                    elif hasattr(query, 'schema_json'):
+                        query = query.schema_json()
+
             if is_schema(query):
                 return self.schema_prompt_template.format(query=query, content=content)
             else:

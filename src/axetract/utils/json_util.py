@@ -3,7 +3,17 @@ import re
 from json_repair import repair_json
 from typing import Any, Dict, Iterable, List, Optional, Union
 
-def is_schema(text: str) -> bool:
+def is_schema(text: Any) -> bool:
+    if not isinstance(text, str):
+        # Check if it's a Pydantic BaseModel class
+        try:
+            from pydantic import BaseModel
+            if isinstance(text, type) and issubclass(text, BaseModel):
+                return True
+        except (ImportError, TypeError):
+            pass
+        return False
+    
     # Case 1: Python dict_keys
     if text.strip().startswith("dict_keys("):
         return True

@@ -17,7 +17,7 @@ class AXESample(BaseModel):
     content: str 
     is_content_url: bool
     query: Optional[str] = None
-    schema_model: Optional[Type[BaseModel]] = None
+    schema_model: Optional[Union[str, Type[BaseModel]]] = None
     chunks: List[AXEChunk] = []
     original_html: str = "" 
     current_html: str = "" 

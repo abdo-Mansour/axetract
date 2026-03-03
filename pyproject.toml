@@ -16,7 +16,10 @@ dependencies = [
     "html-chunking>=0.0.4",
     "htmlrag>=0.1.1",
     "json-repair>=0.58.1",
+    "peft>=0.18.1",
     "pydantic>=2.13.0b2",
+    "torch>=2.9.1",
+    "transformers>=4.57.6",
     "vllm>=0.16.0",
 ]
 

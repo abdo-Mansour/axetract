@@ -1,13 +1,16 @@
 """Unit tests for BaseClient.call_batch."""
-import pytest
-from unittest.mock import MagicMock, patch, call
-from typing import Optional
-from axetract.llm.base_client import BaseClient
 
+from typing import Optional
+from unittest.mock import MagicMock
+
+import pytest
+
+from axetract.llm.base_client import BaseClient
 
 # ---------------------------------------------------------------------------
 # Concrete stub so we can instantiate the abstract BaseClient
 # ---------------------------------------------------------------------------
+
 
 class _StubClient(BaseClient):
     def call_api(self, prompt: str, adapter_name: Optional[str] = None, **kwargs) -> str:
@@ -32,8 +35,8 @@ class _FailingClient(BaseClient):
 # Basic call_batch behaviour
 # ===========================================================================
 
-class TestCallBatch:
 
+class TestCallBatch:
     def test_returns_list_same_length(self):
         client = _StubClient()
         prompts = ["a", "b", "c"]
@@ -68,8 +71,8 @@ class TestCallBatch:
 # chunk_size splitting
 # ===========================================================================
 
-class TestCallBatchChunkSize:
 
+class TestCallBatchChunkSize:
     def test_chunk_size_splits_correctly(self):
         """With chunk_size=2 and 5 prompts, should process all 5."""
         client = _StubClient()
@@ -96,15 +99,15 @@ class TestCallBatchChunkSize:
 # Error handling
 # ===========================================================================
 
-class TestCallBatchErrorHandling:
 
+class TestCallBatchErrorHandling:
     def test_failure_returns_none_by_default(self):
         """When one call fails and raise_on_error=False, result is None for that slot."""
         client = _FailingClient(fail_on=1)
         results = client.call_batch(["ok", "fail", "ok2"], raise_on_error=False)
-        assert results[0] is not None   # "ok:ok"
-        assert results[1] is None       # failed call → None
-        assert results[2] is not None   # "ok:ok2"
+        assert results[0] is not None  # "ok:ok"
+        assert results[1] is None  # failed call → None
+        assert results[2] is not None  # "ok:ok2"
 
     def test_failure_raises_when_requested(self):
         client = _FailingClient(fail_on=0)
@@ -113,6 +116,7 @@ class TestCallBatchErrorHandling:
 
     def test_all_failures_return_all_none(self):
         """Every call fails → every result is None."""
+
         class _AllFail(BaseClient):
             def call_api(self, prompt, adapter_name=None, **kwargs):
                 raise ValueError("always fail")
@@ -126,8 +130,8 @@ class TestCallBatchErrorHandling:
 # per_result_callback
 # ===========================================================================
 
-class TestPerResultCallback:
 
+class TestPerResultCallback:
     def test_callback_called_for_each_result(self):
         client = _StubClient()
         cb = MagicMock()
@@ -167,8 +171,8 @@ class TestPerResultCallback:
 # adapter_name forwarding
 # ===========================================================================
 
-class TestAdapterName:
 
+class TestAdapterName:
     def test_adapter_name_forwarded_to_call_api(self):
         """call_batch should pass adapter_name down to call_api."""
         mock_call_api = MagicMock(return_value="resp")

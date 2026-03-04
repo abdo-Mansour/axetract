@@ -1,17 +1,33 @@
 from __future__ import annotations
+
 import uuid
-from typing import List, Union, Optional, Type, Any, Dict
+from typing import Any, Dict, List, Optional, Type, Union
+
 from pydantic import BaseModel
 
-from axetract.preprocessor.base_preprocessor import BasePreprocessor
-from axetract.pruner.base_pruner import BasePruner
+from axetract.data_types import AXEResult, AXESample, Status
 from axetract.extractor.base_extractor import BaseExtractor
 from axetract.postprocessor.base_postprocessor import BasePostprocessor
-
-from axetract.data_types import AXESample, AXEResult, Status
+from axetract.preprocessor.base_preprocessor import BasePreprocessor
+from axetract.pruner.base_pruner import BasePruner
 
 
 class AXEPipeline:
+    """The main orchestrator for the Axetract data extraction process.
+
+    This class coordinates the flow of data through four main stages:
+    1. **Preprocessing**: Fetching and cleaning HTML content.
+    2. **Pruning**: Using a LoRA-powered LLM to filter out irrelevant DOM nodes.
+    3. **Extraction**: Using a LoRA-powered LLM to map HTML content to structured JSON.
+    4. **Postprocessing**: Validating schema and performing final cleanup.
+
+    Attributes:
+        preprocessor (BasePreprocessor): Component for initial HTML handling.
+        pruner (BasePruner): Component for relevance filtering.
+        extractor (BaseExtractor): Component for structured data generation.
+        postprocessor (BasePostprocessor): Component for results refinement.
+    """
+
     def __init__(
         self,
         preprocessor: BasePreprocessor,
@@ -19,6 +35,14 @@ class AXEPipeline:
         extractor: BaseExtractor,
         postprocessor: BasePostprocessor,
     ):
+        """Initialize the pipeline with its core components.
+
+        Args:
+            preprocessor (BasePreprocessor): Component for fetching and cleaning.
+            pruner (BasePruner): Component for relevance pruning.
+            extractor (BaseExtractor): Component for structured extraction.
+            postprocessor (BasePostprocessor): Component for JSON repair and grounding.
+        """
         self.preprocessor = preprocessor
         self.pruner = pruner
         self.extractor = extractor
@@ -28,16 +52,22 @@ class AXEPipeline:
     def from_config(
         cls, llm_config: Optional[Dict[str, Any]] = None, use_vllm: bool = False
     ) -> "AXEPipeline":
+        """Creates a ready-to-use pipeline with default clients, components, and prompts.
+
+        Args:
+            llm_config (Optional[Dict[str, Any]]): LLM configuration override.
+            use_vllm (bool): Whether to use vLLM for high-throughput serving.
+
+        Returns:
+            AXEPipeline: An initialized pipeline instance.
         """
-        Creates a ready-to-use pipeline with default clients, components, and prompts.
-        """
-        from axetract.preprocessor.axe_preprocessor import AXEPreprocessor
-        from axetract.pruner.axe_pruner import AXEPruner
         from axetract.extractor.axe_extractor import AXEExtractor
         from axetract.postprocessor.axe_postprocessor import AXEPostprocessor
+        from axetract.preprocessor.axe_preprocessor import AXEPreprocessor
         from axetract.prompts.pruner_prompt import PRUNER_PROMPT
         from axetract.prompts.qa_prompt import QA_PROMPT
         from axetract.prompts.schema_prompt import SCHEMA_PROMPT
+        from axetract.pruner.axe_pruner import AXEPruner
 
         if llm_config is None:
             llm_config = {
@@ -102,6 +132,16 @@ class AXEPipeline:
         query: Optional[str] = None,
         schema: Optional[Union[Type[BaseModel], str, Dict[str, Any]]] = None,
     ) -> AXEResult:
+        """Extract structured data from a single input document.
+
+        Args:
+            input_data (str): URL or raw HTML content.
+            query (Optional[str]): Natural language extraction prompt.
+            schema (Optional[Union[Type[BaseModel], str, Dict[str, Any]]]): Desired output schema.
+
+        Returns:
+            AXEResult: The final extraction result.
+        """
         # 1. Create sample
         sample = AXESample(
             id=str(uuid.uuid4()),
@@ -120,8 +160,15 @@ class AXEPipeline:
         query: Optional[str] = None,
         schema: Optional[Union[Type[BaseModel], str, Dict[str, Any]]] = None,
     ) -> List[AXEResult]:
-        """
-        Helper method to apply the EXACT SAME query or schema across multiple documents simultaneously.
+        """Helper method to apply the EXACT SAME query or schema across multiple documents simultaneously.
+
+        Args:
+            inputs (List[str]): List of URLs or raw HTML strings.
+            query (Optional[str]): Extraction query for all documents.
+            schema (Optional[Union[Type[BaseModel], str, Dict[str, Any]]]): Common schema.
+
+        Returns:
+            List[AXEResult]: Results for each input document.
         """
         batch = [
             AXESample(
@@ -136,10 +183,16 @@ class AXEPipeline:
         return self.process_batch(batch)
 
     def process_batch(self, batch: List[Union[AXESample, Dict[str, Any]]]) -> List[AXEResult]:
-        """
-        Main execution flow of the pipeline.
-        Calls the components in sequence: Preprocessor -> Pruner -> Extractor -> Postprocessor.
-        Accepts a list of AXESample objects OR a list of dictionaries with keys like 'input_data', 'query', 'schema'.
+        """Main execution flow of the pipeline.
+
+        Accepts a list of AXESample objects OR a list of dictionaries.
+        Coordinates the component flow: Preprocessor -> Pruner -> Extractor -> Postprocessor.
+
+        Args:
+            batch (List[Union[AXESample, Dict[str, Any]]]): Batch of extraction tasks.
+
+        Returns:
+            List[AXEResult]: Final processed results.
         """
         # 0. Convert Dicts to AXESamples if necessary
         formatted_batch = []
@@ -157,7 +210,7 @@ class AXEPipeline:
                 )
             else:
                 formatted_batch.append(item)
-                
+
         batch = formatted_batch
 
         # 1. Preprocess (Fetch & Chunk)

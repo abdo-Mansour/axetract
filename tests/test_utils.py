@@ -1,15 +1,16 @@
 """Expanded utils tests: json_util, html_util key functions."""
-import pytest
+
 from pydantic import BaseModel
-from axetract.utils.json_util import is_schema, extract_and_repair_json
+
 from axetract.utils.html_util import (
-    clean_html,
     chunk_html_content,
-    normalize_html_text,
+    clean_html,
     custom_clean_html,
     extract_visible_xpaths_leaves,
     find_closest_html_node,
+    normalize_html_text,
 )
+from axetract.utils.json_util import extract_and_repair_json, is_schema
 
 
 class DummyModel(BaseModel):
@@ -20,6 +21,7 @@ class DummyModel(BaseModel):
 # ===========================================================================
 # is_schema
 # ===========================================================================
+
 
 class TestIsSchema:
     def test_dict_input(self):
@@ -58,13 +60,14 @@ class TestIsSchema:
 # extract_and_repair_json
 # ===========================================================================
 
+
 class TestExtractAndRepairJson:
     def test_valid_json(self):
         result = extract_and_repair_json('{"key": "value"}')
         assert result == {"key": "value"}
 
     def test_markdown_fenced_json(self):
-        md = "```json\n{\"price\": 100}\n```"
+        md = '```json\n{"price": 100}\n```'
         result = extract_and_repair_json(md)
         assert result == {"price": 100}
 
@@ -93,7 +96,7 @@ class TestExtractAndRepairJson:
         # 123 should be skipped (not a string)
 
     def test_embedded_json_block_extracted(self):
-        response = "Some prefix text {\"a\": 1} some suffix"
+        response = 'Some prefix text {"a": 1} some suffix'
         result = extract_and_repair_json(response)
         assert result.get("a") == 1
 
@@ -101,6 +104,7 @@ class TestExtractAndRepairJson:
 # ===========================================================================
 # normalize_html_text
 # ===========================================================================
+
 
 class TestNormalizeHtmlText:
     def test_empty_string(self):
@@ -129,6 +133,7 @@ class TestNormalizeHtmlText:
 # custom_clean_html
 # ===========================================================================
 
+
 class TestCustomCleanHtml:
     def test_removes_script_tags(self):
         html = "<html><body><script>alert(1)</script><p>Text</p></body></html>"
@@ -153,7 +158,7 @@ class TestCustomCleanHtml:
         assert "Ghost" not in result
 
     def test_removes_onclick_attrs(self):
-        html = "<html><body><button onclick=\"evil()\">Click</button></body></html>"
+        html = '<html><body><button onclick="evil()">Click</button></body></html>'
         result = custom_clean_html(html)
         assert "onclick" not in result
         assert "Click" in result
@@ -167,6 +172,7 @@ class TestCustomCleanHtml:
 # ===========================================================================
 # clean_html
 # ===========================================================================
+
 
 class TestCleanHtml:
     def test_removes_scripts(self):
@@ -187,6 +193,7 @@ class TestCleanHtml:
 # ===========================================================================
 # chunk_html_content
 # ===========================================================================
+
 
 class TestChunkHtmlContent:
     def test_returns_list(self):
@@ -209,6 +216,7 @@ class TestChunkHtmlContent:
 # ===========================================================================
 # extract_visible_xpaths_leaves
 # ===========================================================================
+
 
 class TestExtractVisibleXpathsLeaves:
     def test_basic_extraction(self):
@@ -239,6 +247,7 @@ class TestExtractVisibleXpathsLeaves:
 # ===========================================================================
 # find_closest_html_node
 # ===========================================================================
+
 
 class TestFindClosestHtmlNode:
     def test_finds_exact_match(self):

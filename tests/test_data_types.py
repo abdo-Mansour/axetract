@@ -1,7 +1,9 @@
 """Unit tests for axetract data types (AXESample, AXEChunk, AXEResult, Status)."""
+
 import pytest
 from pydantic import BaseModel, ValidationError
-from axetract.data_types import AXESample, AXEChunk, AXEResult, Status
+
+from axetract.data_types import AXEChunk, AXEResult, AXESample, Status
 
 
 class DummySchema(BaseModel):
@@ -12,6 +14,7 @@ class DummySchema(BaseModel):
 # ===========================================================================
 # Status
 # ===========================================================================
+
 
 class TestStatus:
     def test_all_values_exist(self):
@@ -27,6 +30,7 @@ class TestStatus:
 # ===========================================================================
 # AXEChunk
 # ===========================================================================
+
 
 class TestAXEChunk:
     def test_creation(self):
@@ -46,6 +50,7 @@ class TestAXEChunk:
 # ===========================================================================
 # AXESample
 # ===========================================================================
+
 
 class TestAXESample:
     def test_basic_creation(self):
@@ -137,6 +142,7 @@ class TestAXESample:
 # ===========================================================================
 # AXEResult
 # ===========================================================================
+
 
 class TestAXEResult:
     def test_basic_creation(self):

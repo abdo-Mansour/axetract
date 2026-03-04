@@ -1,4 +1,3 @@
-
 PRUNER_PROMPT = """
 You are a Smart and Clever Context Selector. Your task is to filter a list of HTML chunks, keeping ONLY the ones relevant to the provided Query/Schema and any necessary context to answer the query.
 

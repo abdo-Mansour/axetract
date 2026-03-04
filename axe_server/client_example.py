@@ -1,7 +1,10 @@
-import requests
 import json
 
+import requests
+
+
 def test_single():
+    """Test processing a single URL."""
     url = "http://localhost:8000/process"
     data = {
         "input_data": "https://www.google.com",
@@ -11,23 +14,20 @@ def test_single():
     print("Single Request Response:")
     print(json.dumps(response.json(), indent=2))
 
+
 def test_batch():
+    """Test processing multiple URLs in a batch."""
     url = "http://localhost:8000/process_batch"
     data = {
         "items": [
-            {
-                "input_data": "https://www.google.com",
-                "query": "Get search button text"
-            },
-            {
-                "input_data": "https://www.github.com",
-                "query": "What is the hero text?"
-            }
+            {"input_data": "https://www.google.com", "query": "Get search button text"},
+            {"input_data": "https://www.github.com", "query": "What is the hero text?"},
         ]
     }
     response = requests.post(url, json=data)
     print("\nBatch Request Response:")
     print(json.dumps(response.json(), indent=2))
+
 
 if __name__ == "__main__":
     # Note: Server must be running first!

@@ -1,22 +1,17 @@
-import os
-import random
-import time
 import threading
-from abc import ABC, abstractmethod
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from functools import wraps
-from typing import List, Iterable, Optional, Any, Callable, Dict, Union
-from axetract.llm.base_client import BaseClient 
+from typing import Iterable, List, Optional
+
+import torch
+from peft import PeftModel
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+from axetract.llm.base_client import BaseClient
 
 # 3. Hugging Face Transformers & PEFT
 try:
-    import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
-    from peft import PeftModel
     HF_AVAILABLE = True
 except ImportError:
     HF_AVAILABLE = False
-
 
 
 def format_prompt_with_thinking(prompt: str, enable_thinking: bool, call_thinking: bool) -> str:
@@ -27,15 +22,22 @@ def format_prompt_with_thinking(prompt: str, enable_thinking: bool, call_thinkin
         return f"{prompt}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
 
 
-
 class HuggingFaceClient(BaseClient):
-    """
-    Connects directly to Hugging Face transformers.
+    """Connects directly to Hugging Face transformers.
+
     Supports native tensor batching and on-the-fly PEFT LoRA switching.
     """
+
     def __init__(self, config: dict):
-        if not HF_AVAILABLE:
-            raise ImportError("Transformers/Torch/PEFT not installed. Install with 'pip install torch transformers peft'")
+        """Initialize the Hugging Face client.
+
+        Args:
+            config (dict): Configuration containing model_name, lora_modules, etc.
+
+        Raises:
+            ImportError: If torch/transformers/peft are not installed.
+            ValueError: If model_name is missing.
+        """
         super().__init__(config)
 
         model_name = config.get("model_name")
@@ -50,29 +52,37 @@ class HuggingFaceClient(BaseClient):
         self.tokenizer.padding_side = "left"
 
         # Load Base Model
-        model_kwargs = config.get("model_kwargs", {"device_map": "auto", "torch_dtype": torch.float16})
+        model_kwargs = config.get(
+            "model_kwargs", {"device_map": "auto", "torch_dtype": torch.float16}
+        )
         self.model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
-        
+
         # Load LoRA Adapters using PEFT
         self.lora_config_raw = config.get("lora_modules", {}) or {}
         self.adapter_defaults = {}
-        
+
         if self.lora_config_raw:
             adapters = list(self.lora_config_raw.items())
             # Initialize PeftModel with the first adapter
             first_name, first_data = adapters[0]
             first_path = first_data if isinstance(first_data, str) else first_data.get("path")
             self.model = PeftModel.from_pretrained(self.model, first_path, adapter_name=first_name)
-            self.adapter_defaults[first_name] = {} if isinstance(first_data, str) else {k: v for k, v in first_data.items() if k != "path"}
+            self.adapter_defaults[first_name] = (
+                {}
+                if isinstance(first_data, str)
+                else {k: v for k, v in first_data.items() if k != "path"}
+            )
 
             # Load remaining adapters
             for name, data in adapters[1:]:
                 path = data if isinstance(data, str) else data.get("path")
                 self.model.load_adapter(path, adapter_name=name)
-                self.adapter_defaults[name] = {} if isinstance(data, str) else {k: v for k, v in data.items() if k != "path"}
-        
+                self.adapter_defaults[name] = (
+                    {} if isinstance(data, str) else {k: v for k, v in data.items() if k != "path"}
+                )
+
         self.model.eval()
-        self._generate_lock = threading.Lock() # Vital to prevent adapter state collision
+        self._generate_lock = threading.Lock()  # Vital to prevent adapter state collision
 
         # Defaults
         gen_conf = config.get("generation_config", {})
@@ -82,39 +92,53 @@ class HuggingFaceClient(BaseClient):
         self.enable_thinking = config.get("enable_thinking", False)
 
     def _get_generation_config(self, adapter_name: Optional[str] = None, **kwargs) -> dict:
-        params = {"temperature": self.temperature, "top_p": self.top_p, "max_new_tokens": self.max_tokens}
+        params = {
+            "temperature": self.temperature,
+            "top_p": self.top_p,
+            "max_new_tokens": self.max_tokens,
+        }
         if adapter_name and adapter_name in self.adapter_defaults:
             params.update(self.adapter_defaults[adapter_name])
-        
+
         # Translate unified 'max_tokens' to HF's 'max_new_tokens'
         if "max_tokens" in kwargs:
             params["max_new_tokens"] = kwargs.pop("max_tokens")
         params.update({k: v for k, v in kwargs.items() if v is not None})
-        
+
         # Hugging Face logic: If temp is 0, greedy decode (do_sample=False)
         params["do_sample"] = params.get("temperature", 0.0) > 0.0
         if not params["do_sample"]:
             params.pop("temperature", None)
             params.pop("top_p", None)
-            
+
         params["pad_token_id"] = self.tokenizer.pad_token_id
         return params
 
     def call_batch(
-        self, 
-        prompts: Iterable[str], 
-        adapter_name: Optional[str] = None, 
-        chunk_size: int = 8, 
+        self,
+        prompts: Iterable[str],
+        adapter_name: Optional[str] = None,
+        chunk_size: int = 8,
         thinking: bool = False,
-        **kwargs
+        **kwargs,
     ) -> List[Optional[str]]:
-        """
-        Overrides default threaded batching with proper tensor-level Hugging Face batching.
+        """Overrides default threaded batching with proper tensor-level Hugging Face batching.
+
         Uses `chunk_size` to prevent GPU Out-Of-Memory errors.
+
+        Args:
+            prompts (Iterable[str]): Batch of prompts.
+            adapter_name (Optional[str]): Target LoRA adapter.
+            chunk_size (int): Internal batch size for GPU processing.
+            thinking (bool): Enable thinking tags in prompt.
+            **kwargs: Generation parameter overrides.
+
+        Returns:
+            List[Optional[str]]: Decoded completions.
         """
-        prompts =[format_prompt_with_thinking(p, self.enable_thinking, thinking) for p in prompts]
+        prompts = [format_prompt_with_thinking(p, self.enable_thinking, thinking) for p in prompts]
         gen_kwargs = self._get_generation_config(adapter_name=adapter_name, **kwargs)
-        all_results =[]
+        all_results = []
 
         with self._generate_lock:
             # 1. Switch Adapter
@@ -128,26 +152,49 @@ class HuggingFaceClient(BaseClient):
             try:
                 # 2. Process in manageable chunks to avoid OOM
                 for i in range(0, len(prompts), chunk_size):
-                    chunk = prompts[i:i + chunk_size]
-                    
-                    inputs = self.tokenizer(chunk, return_tensors="pt", padding=True, truncation=True)
+                    chunk = prompts[i : i + chunk_size]
+
+                    inputs = self.tokenizer(
+                        chunk, return_tensors="pt", padding=True, truncation=True
+                    )
                     inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
-                    
+
                     with torch.no_grad():
                         outputs = self.model.generate(**inputs, **gen_kwargs)
-                    
+
                     # 3. Slice the output to exclude the prompt tokens
                     input_length = inputs["input_ids"].shape[1]
                     generated_tokens = outputs[:, input_length:]
-                    
-                    decoded = self.tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)
+
+                    decoded = self.tokenizer.batch_decode(
+                        generated_tokens, skip_special_tokens=True
+                    )
                     all_results.extend(decoded)
             finally:
                 # Cleanup context manager if we disabled adapters
                 if not adapter_name and hasattr(self.model, "set_adapter"):
-                    context_mgr.__exit__(None, None, None)
+                    # This check is a bit redundant but safe
+                    try:
+                        context_mgr.__exit__(None, None, None)
+                    except NameError:
+                        pass
 
         return all_results
 
-    def call_api(self, prompt: str, adapter_name: Optional[str] = None, thinking=False, **kwargs) -> str:
-        return self.call_batch([prompt], adapter_name=adapter_name, chunk_size=1, thinking=thinking, **kwargs)[0]
+    def call_api(
+        self, prompt: str, adapter_name: Optional[str] = None, thinking=False, **kwargs
+    ) -> str:
+        """Call a single prompt completion.
+
+        Args:
+            prompt (str): Input text.
+            adapter_name (Optional[str]): LoRA adapter name.
+            thinking (bool): Enable thinking tags.
+            **kwargs: Generation overrides.
+
+        Returns:
+            str: Generated text.
+        """
+        return self.call_batch(
+            [prompt], adapter_name=adapter_name, chunk_size=1, thinking=thinking, **kwargs
+        )[0]

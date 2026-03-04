@@ -7,8 +7,8 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = { file = "LICENSE" }
 authors = [
-    {name="Khaled Alshaer", email = "khaled.w.alshaer@gmail.com"},
     {name="Abdelrahman Mansour", email = "abdelrahman.f.mansour@gmail.com"},
+    {name="Khaled Alshaer", email = "khaled.w.alshaer@gmail.com"},
 ]
 
 # dependencies
@@ -28,10 +28,28 @@ dev = [
     "mkdocs>=1.6.1",
     "pytest>=9.0.2",
     "mkdocs-material>=9.7.3",
+    "mkdocstrings[python]>=1.0.3",
+    "ruff>=0.15.4",
 ]
 
 
-# build
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "D"]
+ignore = ["D100", "D104", "E501"] # Ignore missing docstrings in modules and packages, and long lines
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["D1"] # Don't require docstrings in tests
+"*.ipynb" = ["W291"] # Ignore trailing whitespace in notebooks
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.isort]
+known-first-party = ["axetract"]
+
 [build-system]
 requires = ["uv_build>=0.10.6,<0.11.0"]
 build-backend = "uv_build"

@@ -1,19 +1,20 @@
 """Unit tests for AXEPipeline."""
-import pytest
-from unittest.mock import MagicMock, patch, call
-from pydantic import BaseModel
 
+from unittest.mock import MagicMock
+
+from axetract.data_types import AXEChunk, AXEResult, AXESample, Status
 from axetract.pipeline import AXEPipeline
-from axetract.data_types import AXESample, AXEChunk, AXEResult, Status
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_mock_components(prediction="answer", current_html="<p>html</p>"):
-    """Return (preprocessor, pruner, extractor, postprocessor) mocks
-    that pass through and mutate samples realistically."""
+    """Return (preprocessor, pruner, extractor, postprocessor) mocks.
+
+    that pass through and mutate samples realistically.
+    """
 
     def _preprocessor_side_effect(batch):
         for s in batch:
@@ -105,9 +106,12 @@ class TestAXEPipelineProcess:
 
         def _pp_passthrough(batch):
             return batch
+
         postprocessor = MagicMock(side_effect=_pp_passthrough)
 
-        pipeline = AXEPipeline(preprocessor=p, pruner=pr, extractor=extractor, postprocessor=postprocessor)
+        pipeline = AXEPipeline(
+            preprocessor=p, pruner=pr, extractor=extractor, postprocessor=postprocessor
+        )
         result = pipeline.process("<p>Hello</p>", query="What?")
         assert result.status == Status.FAILED
         assert result.error is not None

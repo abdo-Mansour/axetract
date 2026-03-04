@@ -1,14 +1,14 @@
-"""
-End-to-end tests for AXEPipeline.
+"""End-to-end tests for AXEPipeline.
+
 All LLM calls are mocked — no GPU required.
 """
-import pytest
-from unittest.mock import MagicMock, patch
+
+from unittest.mock import MagicMock
+
 from pydantic import BaseModel
 
+from axetract.data_types import AXEChunk, AXEResult, AXESample, Status
 from axetract.pipeline import AXEPipeline
-from axetract.data_types import AXESample, AXEChunk, AXEResult, Status
-
 
 # ---------------------------------------------------------------------------
 # Shared test HTML fixture
@@ -42,6 +42,7 @@ PRODUCT_HTML = """
 # Mock component factory
 # ---------------------------------------------------------------------------
 
+
 def _make_pipeline(
     extractor_prediction: str = '{"price": "$299", "weight": "1.2kg"}',
     postprocessor_prediction=None,
@@ -72,6 +73,7 @@ def _make_pipeline(
                 s.prediction = postprocessor_prediction
             elif isinstance(s.prediction, str):
                 import json
+
                 try:
                     s.prediction = json.loads(s.prediction)
                 except Exception:
@@ -89,6 +91,7 @@ def _make_pipeline(
 # ===========================================================================
 # E2E: process() with a natural-language query
 # ===========================================================================
+
 
 class TestE2EProcessWithQuery:
     def test_returns_axe_result(self):
@@ -125,6 +128,7 @@ class TestE2EProcessWithQuery:
 # ===========================================================================
 # E2E: process() with a JSON schema
 # ===========================================================================
+
 
 class TestE2EProcessWithSchema:
     SCHEMA = '{"price": "string", "weight": "string"}'
@@ -164,6 +168,7 @@ class TestE2EProcessWithSchema:
 # E2E: process_many() — same query, multiple documents
 # ===========================================================================
 
+
 class TestE2EProcessMany:
     def test_correct_number_of_results(self):
         pipeline = _make_pipeline()
@@ -173,17 +178,13 @@ class TestE2EProcessMany:
 
     def test_all_results_are_axe_results(self):
         pipeline = _make_pipeline()
-        results = pipeline.process_many(
-            [PRODUCT_HTML, "<p>B</p>"], query="What is the title?"
-        )
+        results = pipeline.process_many([PRODUCT_HTML, "<p>B</p>"], query="What is the title?")
         for r in results:
             assert isinstance(r, AXEResult)
 
     def test_all_results_are_success(self):
         pipeline = _make_pipeline()
-        results = pipeline.process_many(
-            [PRODUCT_HTML, "<p>B</p>"], query="q?"
-        )
+        results = pipeline.process_many([PRODUCT_HTML, "<p>B</p>"], query="q?")
         for r in results:
             assert r.status == Status.SUCCESS
 
@@ -191,6 +192,7 @@ class TestE2EProcessMany:
 # ===========================================================================
 # E2E: process_batch() with dict inputs
 # ===========================================================================
+
 
 class TestE2EProcessBatch:
     def test_dict_inputs_processed(self):

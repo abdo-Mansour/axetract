@@ -1,22 +1,23 @@
 """Unit tests for axe_pruner module."""
-import pytest
+
 from unittest.mock import MagicMock, patch
+
+from axetract.data_types import AXEChunk, AXESample
+from axetract.prompts.pruner_prompt import PRUNER_PROMPT
 from axetract.pruner.axe_pruner import (
     AXEPruner,
+    _escape_single_quotes,
     _longest_common_xpath_prefix,
     _remove_prefix_from_xpath,
-    _escape_single_quotes,
-    generate_pruner_prompt,
     _worker_filter_prep,
     _worker_merge_html,
+    generate_pruner_prompt,
 )
-from axetract.data_types import AXESample, AXEChunk
-from axetract.prompts.pruner_prompt import PRUNER_PROMPT
-
 
 # ===========================================================================
 # _longest_common_xpath_prefix
 # ===========================================================================
+
 
 class TestLongestCommonXpathPrefix:
     def test_common_prefix(self):
@@ -53,6 +54,7 @@ class TestLongestCommonXpathPrefix:
 # _remove_prefix_from_xpath
 # ===========================================================================
 
+
 class TestRemovePrefixFromXpath:
     def test_basic_removal(self):
         assert _remove_prefix_from_xpath("/html/body/div[1]/p", "/html/body/div[1]") == "/p"
@@ -79,6 +81,7 @@ class TestRemovePrefixFromXpath:
 # _escape_single_quotes
 # ===========================================================================
 
+
 class TestEscapeSingleQuotes:
     def test_none_returns_empty_string(self):
         assert _escape_single_quotes(None) == ""
@@ -100,6 +103,7 @@ class TestEscapeSingleQuotes:
 # ===========================================================================
 # generate_pruner_prompt
 # ===========================================================================
+
 
 class TestGeneratePrunerPrompt:
     TEMPLATE = "Query: {query}. Content: {content}"
@@ -139,13 +143,12 @@ class TestGeneratePrunerPrompt:
 # _worker_filter_prep  (top-level worker — no multiprocessing needed)
 # ===========================================================================
 
+
 class TestWorkerFilterPrep:
     @patch("axetract.pruner.axe_pruner.SmartHTMLProcessor")
     def test_returns_tuple_of_chunks_and_prompt(self, mock_processor_cls):
         mock_processor = MagicMock()
-        mock_processor.extract_chunks.return_value = [
-            {"xpath": "/html/body/p", "content": "Hello"}
-        ]
+        mock_processor.extract_chunks.return_value = [{"xpath": "/html/body/p", "content": "Hello"}]
         mock_processor_cls.return_value = mock_processor
 
         chunk_content = "<p>Hello</p>"
@@ -172,13 +175,16 @@ class TestWorkerFilterPrep:
 # _worker_merge_html  (top-level worker)
 # ===========================================================================
 
+
 class TestWorkerMergeHtml:
     @patch("axetract.utils.html_util.merge_html_chunks", return_value="<html>Merged</html>")
     def test_newlines_stripped_from_result(self, mock_merge):
         result = _worker_merge_html(([[]], "<p>fallback</p>"))
         assert "\n" not in result
 
-    @patch("axetract.utils.html_util.merge_html_chunks", return_value="<html>\nLine1\nLine2\n</html>")
+    @patch(
+        "axetract.utils.html_util.merge_html_chunks", return_value="<html>\nLine1\nLine2\n</html>"
+    )
     def test_merge_called_with_correct_args(self, mock_merge):
         chunks = [["x"]]
         content = "<p>raw</p>"
@@ -189,6 +195,7 @@ class TestWorkerMergeHtml:
 # ===========================================================================
 # AXEPruner integration (mocked multiprocessing)
 # ===========================================================================
+
 
 class TestAXEPruner:
     def _make_sample(self, sample_id="0"):

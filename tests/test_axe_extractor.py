@@ -1,11 +1,11 @@
 """Unit tests for AXEExtractor."""
-import pytest
-from unittest.mock import MagicMock, patch
+
+from unittest.mock import MagicMock
+
 from pydantic import BaseModel
 
+from axetract.data_types import AXESample, Status
 from axetract.extractor.axe_extractor import AXEExtractor
-from axetract.data_types import AXESample, AXEChunk, Status
-
 
 SCHEMA_PROMPT = "Schema: {query}\nContent: {content}"
 QA_PROMPT = "Question: {query}\nContent: {content}"
@@ -69,20 +69,22 @@ class TestAXEExtractorGenerateOutput:
         mock_llm.call_batch.return_value = ['{"answer": "blue"}']
 
         sample = _make_sample(query="What color is it?")
-        results = extractor._generate_output([sample])
+        extractor._generate_output([sample])
 
         mock_llm.call_batch.assert_called_once()
         call_kwargs = mock_llm.call_batch.call_args
-        assert call_kwargs[1].get("adapter_name") == "qa" or (
-            len(call_kwargs[0]) > 1 and call_kwargs[0][1] == "qa"
-        ) or call_kwargs.kwargs.get("adapter_name") == "qa"
+        assert (
+            call_kwargs[1].get("adapter_name") == "qa"
+            or (len(call_kwargs[0]) > 1 and call_kwargs[0][1] == "qa")
+            or call_kwargs.kwargs.get("adapter_name") == "qa"
+        )
 
     def test_schema_query_uses_schema_adapter(self):
         extractor, mock_llm = self._make_extractor()
         mock_llm.call_batch.return_value = ['{"price": "$10"}']
 
         sample = _make_sample(schema_model={"price": "string"})
-        results = extractor._generate_output([sample])
+        extractor._generate_output([sample])
 
         mock_llm.call_batch.assert_called_once()
         call_kwargs = mock_llm.call_batch.call_args
@@ -101,7 +103,7 @@ class TestAXEExtractorGenerateOutput:
     def test_mixed_qa_and_schema_samples(self):
         mock_llm = MagicMock()
         mock_llm.call_batch.side_effect = [
-            ['{"qa_answer": "yes"}'],    # QA call
+            ['{"qa_answer": "yes"}'],  # QA call
             ['{"schema_price": "$5"}'],  # Schema call
         ]
         extractor = AXEExtractor(

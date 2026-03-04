@@ -1,21 +1,20 @@
 """Unit tests for AXEPostprocessor and its top-level worker functions."""
-import pytest
+
 from unittest.mock import MagicMock, patch
 
+from axetract.data_types import AXESample, Status
 from axetract.postprocessor.axe_postprocessor import (
     AXEPostprocessor,
     _recursive_exact_extract,
     _safe_extract_worker,
 )
-from axetract.data_types import AXESample, AXEChunk, Status
-
 
 # ===========================================================================
 # _recursive_exact_extract
 # ===========================================================================
 
-class TestRecursiveExactExtract:
 
+class TestRecursiveExactExtract:
     @patch("axetract.postprocessor.axe_postprocessor.find_closest_html_node")
     def test_scalar_str_calls_find_closest(self, mock_find):
         mock_find.return_value = {"text": "matched", "xpath": "/html/body/p"}
@@ -68,8 +67,8 @@ class TestRecursiveExactExtract:
 # _safe_extract_worker
 # ===========================================================================
 
-class TestSafeExtractWorker:
 
+class TestSafeExtractWorker:
     def test_empty_response_returns_empty_string(self):
         result, xpaths = _safe_extract_worker("", "<p>html</p>", "query", False)
         assert result == ""
@@ -122,6 +121,7 @@ class TestSafeExtractWorker:
 
     def test_pydantic_query_treated_as_schema(self):
         from pydantic import BaseModel
+
         class M(BaseModel):
             field: str
 
@@ -135,9 +135,11 @@ class TestSafeExtractWorker:
 # AXEPostprocessor
 # ===========================================================================
 
-class TestAXEPostprocessor:
 
-    def _make_sample(self, sample_id="1", prediction='{"price": "$10"}', query=None, current_html=""):
+class TestAXEPostprocessor:
+    def _make_sample(
+        self, sample_id="1", prediction='{"price": "$10"}', query=None, current_html=""
+    ):
         s = AXESample(
             id=sample_id,
             content="<p>content</p>",
@@ -204,6 +206,9 @@ class TestAXEPostprocessor:
             current_html="<p>$5</p>",
         )
         # Just ensure it runs without raising
-        with patch("axetract.postprocessor.axe_postprocessor._safe_extract_worker", return_value=({"price": "$5"}, None)):
+        with patch(
+            "axetract.postprocessor.axe_postprocessor._safe_extract_worker",
+            return_value=({"price": "$5"}, None),
+        ):
             results = pp([sample])
         assert len(results) == 1

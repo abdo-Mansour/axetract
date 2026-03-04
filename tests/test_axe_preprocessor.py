@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-import sys
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
-import pytest
-from axetract.data_types import AXESample, AXEChunk
+from axetract.data_types import AXESample
 from axetract.preprocessor.axe_preprocessor import AXEPreprocessor, _chunk_worker
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_sample(
     *,
@@ -27,6 +26,7 @@ def _make_sample(
 # ===================================================================
 # AXEPreprocessor.__init__
 # ===================================================================
+
 
 class TestAXEPreprocessorInit:
     """Verify constructor defaults and custom overrides."""
@@ -75,12 +75,20 @@ class TestAXEPreprocessorInit:
 # AXEPreprocessor.process – fetching behaviour
 # ===================================================================
 
+
 class TestProcessFetching:
     """Ensure URL-based samples are fetched and non-URL samples are left alone."""
 
-    @patch("axetract.preprocessor.axe_preprocessor.chunk_html_content", return_value=["<p>hello</p>"])
-    @patch("axetract.preprocessor.axe_preprocessor.clean_html", side_effect=lambda html_content, **kw: html_content)
-    @patch("axetract.preprocessor.axe_preprocessor.fetch_content", return_value="<html>fetched</html>")
+    @patch(
+        "axetract.preprocessor.axe_preprocessor.chunk_html_content", return_value=["<p>hello</p>"]
+    )
+    @patch(
+        "axetract.preprocessor.axe_preprocessor.clean_html",
+        side_effect=lambda html_content, **kw: html_content,
+    )
+    @patch(
+        "axetract.preprocessor.axe_preprocessor.fetch_content", return_value="<html>fetched</html>"
+    )
     def test_url_sample_is_fetched(self, mock_fetch, mock_clean, mock_chunk):
         sample = _make_sample(content="https://example.com", is_content_url=True)
         p = AXEPreprocessor()
@@ -91,8 +99,13 @@ class TestProcessFetching:
         assert result[0].is_content_url is False
         assert result[0].content == "<html>fetched</html>"
 
-    @patch("axetract.preprocessor.axe_preprocessor.chunk_html_content", return_value=["<p>hello</p>"])
-    @patch("axetract.preprocessor.axe_preprocessor.clean_html", side_effect=lambda html_content, **kw: html_content)
+    @patch(
+        "axetract.preprocessor.axe_preprocessor.chunk_html_content", return_value=["<p>hello</p>"]
+    )
+    @patch(
+        "axetract.preprocessor.axe_preprocessor.clean_html",
+        side_effect=lambda html_content, **kw: html_content,
+    )
     @patch("axetract.preprocessor.axe_preprocessor.fetch_content")
     def test_non_url_sample_not_fetched(self, mock_fetch, mock_clean, mock_chunk):
         sample = _make_sample(content="<p>inline</p>", is_content_url=False)
@@ -101,8 +114,13 @@ class TestProcessFetching:
 
         mock_fetch.assert_not_called()
 
-    @patch("axetract.preprocessor.axe_preprocessor.chunk_html_content", return_value=["<p>hello</p>"])
-    @patch("axetract.preprocessor.axe_preprocessor.clean_html", side_effect=lambda html_content, **kw: html_content)
+    @patch(
+        "axetract.preprocessor.axe_preprocessor.chunk_html_content", return_value=["<p>hello</p>"]
+    )
+    @patch(
+        "axetract.preprocessor.axe_preprocessor.clean_html",
+        side_effect=lambda html_content, **kw: html_content,
+    )
     @patch("axetract.preprocessor.axe_preprocessor.fetch_content", side_effect=Exception("timeout"))
     def test_fetch_error_stores_error_in_content(self, mock_fetch, mock_clean, mock_chunk):
         sample = _make_sample(content="https://bad-url.com", is_content_url=True)
@@ -117,11 +135,15 @@ class TestProcessFetching:
 # AXEPreprocessor.process – single / batch / empty
 # ===================================================================
 
+
 class TestProcessBatching:
     """Verify single-sample wrapping, empty-list short-circuit, and batch."""
 
     @patch("axetract.preprocessor.axe_preprocessor.chunk_html_content", return_value=["c"])
-    @patch("axetract.preprocessor.axe_preprocessor.clean_html", side_effect=lambda html_content, **kw: html_content)
+    @patch(
+        "axetract.preprocessor.axe_preprocessor.clean_html",
+        side_effect=lambda html_content, **kw: html_content,
+    )
     def test_single_sample_wrapped_in_list(self, mock_clean, mock_chunk):
         sample = _make_sample()
         p = AXEPreprocessor()
@@ -130,14 +152,20 @@ class TestProcessBatching:
         assert len(result) == 1
 
     @patch("axetract.preprocessor.axe_preprocessor.chunk_html_content", return_value=["c"])
-    @patch("axetract.preprocessor.axe_preprocessor.clean_html", side_effect=lambda html_content, **kw: html_content)
+    @patch(
+        "axetract.preprocessor.axe_preprocessor.clean_html",
+        side_effect=lambda html_content, **kw: html_content,
+    )
     def test_empty_batch_returns_empty_list(self, mock_clean, mock_chunk):
         p = AXEPreprocessor()
         result = p([])
         assert result == []
 
     @patch("axetract.preprocessor.axe_preprocessor.chunk_html_content", return_value=["c"])
-    @patch("axetract.preprocessor.axe_preprocessor.clean_html", side_effect=lambda html_content, **kw: html_content)
+    @patch(
+        "axetract.preprocessor.axe_preprocessor.clean_html",
+        side_effect=lambda html_content, **kw: html_content,
+    )
     def test_batch_of_multiple_samples(self, mock_clean, mock_chunk):
         samples = [_make_sample(id=f"s{i}") for i in range(5)]
         p = AXEPreprocessor()
@@ -149,18 +177,26 @@ class TestProcessBatching:
 # AXEPreprocessor.process – executor selection
 # ===================================================================
 
+
 class TestProcessExecutor:
     """Ensure correct executor is selected based on cpu_workers."""
 
     @patch("axetract.preprocessor.axe_preprocessor.chunk_html_content", return_value=["c"])
-    @patch("axetract.preprocessor.axe_preprocessor.clean_html", side_effect=lambda html_content, **kw: html_content)
+    @patch(
+        "axetract.preprocessor.axe_preprocessor.clean_html",
+        side_effect=lambda html_content, **kw: html_content,
+    )
     @patch("axetract.preprocessor.axe_preprocessor.ProcessPoolExecutor")
     @patch("axetract.preprocessor.axe_preprocessor.ThreadPoolExecutor")
-    def test_thread_executor_when_cpu_workers_le_1(self, mock_thread, mock_proc, mock_clean, mock_chunk):
+    def test_thread_executor_when_cpu_workers_le_1(
+        self, mock_thread, mock_proc, mock_clean, mock_chunk
+    ):
         # cpu_workers=1 → ThreadPoolExecutor
         sample = _make_sample()
         # Mock map to return the input sample list
-        mock_thread.return_value.__enter__.return_value.map.side_effect = lambda f, items: map(f, items)
+        mock_thread.return_value.__enter__.return_value.map.side_effect = lambda f, items: map(
+            f, items
+        )
         mock_thread.return_value.__exit__ = MagicMock(return_value=False)
 
         p = AXEPreprocessor(cpu_workers=1)
@@ -172,13 +208,14 @@ class TestProcessExecutor:
         mock_proc.assert_not_called()
 
     @patch("axetract.preprocessor.axe_preprocessor.chunk_html_content", return_value=["c"])
-    @patch("axetract.preprocessor.axe_preprocessor.clean_html", side_effect=lambda html_content, **kw: html_content)
+    @patch(
+        "axetract.preprocessor.axe_preprocessor.clean_html",
+        side_effect=lambda html_content, **kw: html_content,
+    )
     @patch("axetract.preprocessor.axe_preprocessor.ProcessPoolExecutor")
     def test_process_executor_when_cpu_workers_gt_1(self, mock_proc, mock_clean, mock_chunk):
         mock_proc.return_value.__enter__ = MagicMock(
-            return_value=MagicMock(
-                map=MagicMock(return_value=iter([{"doc_id": 0, "chunks": []}]))
-            )
+            return_value=MagicMock(map=MagicMock(return_value=iter([{"doc_id": 0, "chunks": []}])))
         )
         mock_proc.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -192,10 +229,14 @@ class TestProcessExecutor:
 # _chunk_worker
 # ===================================================================
 
+
 class TestChunkWorker:
     """Unit tests for the module-level _chunk_worker helper."""
 
-    @patch("axetract.preprocessor.axe_preprocessor.chunk_html_content", return_value=["<p>a</p>", "<p>b</p>"])
+    @patch(
+        "axetract.preprocessor.axe_preprocessor.chunk_html_content",
+        return_value=["<p>a</p>", "<p>b</p>"],
+    )
     @patch("axetract.preprocessor.axe_preprocessor.clean_html", return_value="<p>a</p><p>b</p>")
     def test_returns_chunks_with_correct_ids(self, mock_clean, mock_chunk):
         sample = _make_sample(content="<div>raw</div>")
@@ -234,7 +275,10 @@ class TestChunkWorker:
         assert len(result["chunks"]) == 1
         assert result["chunks"][0]["chunkcontent"] == "<p>full</p>"
 
-    @patch("axetract.preprocessor.axe_preprocessor.chunk_html_content", side_effect=RuntimeError("boom"))
+    @patch(
+        "axetract.preprocessor.axe_preprocessor.chunk_html_content",
+        side_effect=RuntimeError("boom"),
+    )
     @patch("axetract.preprocessor.axe_preprocessor.clean_html", return_value="<p>ok</p>")
     def test_exception_in_chunking_returns_error_payload(self, mock_clean, mock_chunk):
         sample = _make_sample(content="<p>ok</p>")
@@ -279,11 +323,18 @@ class TestChunkWorker:
 # Integration-style tests (still mocking external I/O)
 # ===================================================================
 
+
 class TestProcessIntegration:
     """End-to-end flow through process() with mocked utilities."""
 
-    @patch("axetract.preprocessor.axe_preprocessor.chunk_html_content", return_value=["<p>1</p>", "<p>2</p>"])
-    @patch("axetract.preprocessor.axe_preprocessor.clean_html", side_effect=lambda html_content, **kw: html_content)
+    @patch(
+        "axetract.preprocessor.axe_preprocessor.chunk_html_content",
+        return_value=["<p>1</p>", "<p>2</p>"],
+    )
+    @patch(
+        "axetract.preprocessor.axe_preprocessor.clean_html",
+        side_effect=lambda html_content, **kw: html_content,
+    )
     @patch("axetract.preprocessor.axe_preprocessor.fetch_content", return_value="<html>page</html>")
     def test_full_pipeline_url_sample(self, mock_fetch, mock_clean, mock_chunk):
         sample = _make_sample(content="https://example.com", is_content_url=True)
@@ -298,7 +349,10 @@ class TestProcessIntegration:
         assert len(result) == 1
 
     @patch("axetract.preprocessor.axe_preprocessor.chunk_html_content", return_value=["c1"])
-    @patch("axetract.preprocessor.axe_preprocessor.clean_html", side_effect=lambda html_content, **kw: html_content)
+    @patch(
+        "axetract.preprocessor.axe_preprocessor.clean_html",
+        side_effect=lambda html_content, **kw: html_content,
+    )
     def test_full_pipeline_inline_batch(self, mock_clean, mock_chunk):
         samples = [
             _make_sample(id="a", content="<p>A</p>"),
@@ -313,7 +367,10 @@ class TestProcessIntegration:
         assert mock_clean.call_count == 3
 
     @patch("axetract.preprocessor.axe_preprocessor.chunk_html_content", return_value=["c1"])
-    @patch("axetract.preprocessor.axe_preprocessor.clean_html", side_effect=lambda html_content, **kw: html_content)
+    @patch(
+        "axetract.preprocessor.axe_preprocessor.clean_html",
+        side_effect=lambda html_content, **kw: html_content,
+    )
     @patch("axetract.preprocessor.axe_preprocessor.fetch_content")
     def test_mixed_url_and_inline_batch(self, mock_fetch, mock_clean, mock_chunk):
         mock_fetch.return_value = "<html>fetched</html>"

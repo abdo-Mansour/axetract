@@ -48,7 +48,7 @@ class LocalVLLMClient(BaseClient):
 
         if self.lora_config_raw or config.get("enable_lora", False):
             self.engine_args["enable_lora"] = True
-            self.engine_args["max_loras"] = min(len(self.lora_config_raw) + 1, 4)
+            self.engine_args["max_loras"] = min(len(self.lora_config_raw), 3)
 
         with _vllm_init_lock:
             self.llm = LLM(model=model_name, **self.engine_args)

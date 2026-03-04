@@ -1,8 +1,7 @@
 [project]
-# metadata
 name = "axetract"
 version = "0.1.0"
-description = "Add your description here"
+description = "Low-Cost Cross-Domain Web Structured Information Extraction using specialized LoRA adapters."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { file = "LICENSE" }
@@ -10,8 +9,13 @@ authors = [
     {name="Abdelrahman Mansour", email = "abdelrahman.f.mansour@gmail.com"},
     {name="Khaled Alshaer", email = "khaled.w.alshaer@gmail.com"},
 ]
-
-# dependencies
+keywords = ["web-extraction", "llm", "structured-data", "html-pruning", "lora", "vllm"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.12",
+]
 dependencies = [
     "html-chunking>=0.0.4",
     "htmlrag>=0.1.1",
@@ -20,18 +24,26 @@ dependencies = [
     "pydantic>=2.13.0b2",
     "torch>=2.9.1",
     "transformers>=4.57.6",
+]
+
+[project.optional-dependencies]
+vllm = [
     "vllm>=0.16.0",
 ]
+
+[project.urls]
+Repository = "https://github.com/abdo-Mansour/axetract"
+Documentation = "https://abdo-mansour.github.io/axetract/"
+"Issue Tracker" = "https://github.com/abdo-Mansour/axetract/issues"
 
 [dependency-groups]
 dev = [
     "mkdocs>=1.6.1",
-    "pytest>=9.0.2",
+    "pytest>=8.0.0",
     "mkdocs-material>=9.7.3",
     "mkdocstrings[python]>=1.0.3",
     "ruff>=0.15.4",
 ]
-
 
 [tool.ruff]
 line-length = 100
@@ -53,6 +65,7 @@ known-first-party = ["axetract"]
 [build-system]
 requires = ["uv_build>=0.10.6,<0.11.0"]
 build-backend = "uv_build"
+
 [tool.uv.build-backend]
 module-name = "axetract"
 module-root = "src"

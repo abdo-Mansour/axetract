@@ -1,4 +1,13 @@
+import logging
 import os
+from dotenv import load_dotenv
+
+# 1. Load env file
+load_dotenv()
+
+# 2. FORCE V1 OFF (Must be done before axetract/vllm imports)
+os.environ["VLLM_USE_V1"] = "0"
+
 import sys
 from typing import Any, Dict, List, Optional, Union
 
@@ -11,6 +20,8 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from axetract.data_types import AXEResult
 from axetract.pipeline import AXEPipeline
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="AXEtract API Server")
 
@@ -36,14 +47,14 @@ class BatchProcessRequest(BaseModel):
 async def startup_event():
     """Initialize the global AXEPipeline on server startup."""
     global pipeline
-    print("Initializing AXEPipeline...")
+    logger.info("Initializing AXEPipeline...")
     # In a real scenario, you might want to pass configs via environment variables
     use_vllm = os.getenv("AXE_USE_VLLM", "False").lower() == "true"
     try:
         pipeline = AXEPipeline.from_config(use_vllm=use_vllm)
-        print("AXEPipeline initialized successfully.")
+        logger.info("AXEPipeline initialized successfully.")
     except Exception as e:
-        print(f"Error initializing pipeline: {e}")
+        logger.error("Error initializing pipeline: %s", e)
 
 
 @app.get("/health")

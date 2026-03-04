@@ -16,18 +16,18 @@ graph TD
     end
 ```
 
-## The Four Pillars
+## The Three Pillars
 
 ### 1. Preprocessor
 The preprocessor fetches the raw HTML (if a URL is provided) and performs initial cleaning. It uses `html-chunking` to break down the document into manageable pieces while preserving semantic structure.
 
-### 2. Pruner (LoRA Powered)
-Most web pages contains 90% boilerplate (headers, footers, ads). The Pruner uses a specific LoRA adapter to identify and keep only the parts of the DOM relevant to the user's query. This drastically reduces the number of tokens passed to the Extractor.
+### 2. AI Extractor (LoRA Powered)
+The AI Extractor is divided into two distinct sequential stages:
 
-### 3. Extractor (LoRA Powered)
-The Extractor is the brain of the pipeline. It takes the pruned HTML and the desired schema/query to produce a structured JSON output. What makes Axetract unique is **Grounded XPath Resolution (GXR)**: the extractor doesn't just return text; it returns the exact XPaths of the elements in the original document.
+- **Pruner**: Most web pages contain vast amounts of boilerplate (headers, footers, ads). The Pruner uses a specific LoRA adapter to identify and keep only the parts of the DOM relevant to the user's query. This drastically reduces the number of tokens passed to the Extractor.
+- **Extractor**: The Extractor is the brain of the pipeline. It takes the pruned HTML and the desired schema/query to produce a structured JSON output or answer. What makes Axetract unique is **Grounded XPath Resolution (GXR)**: the extractor doesn't just return text; it returns the exact XPaths of the elements in the original document.
 
-### 4. Postprocessor
+### 3. Postprocessor
 The postprocessor performs final cleanup, schema validation (using `json-repair` if needed), and formatting of the results.
 
 ## Multi-LoRA Strategy

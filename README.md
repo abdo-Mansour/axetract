@@ -22,12 +22,13 @@
 
 ## 🛠️ Architecture
 
-AXEtract follows a four-stage decoupled pipeline for maximum efficiency:
+AXEtract follows a three-part decoupled pipeline for maximum efficiency:
 
-1.  **Preprocessing**: Fetches raw HTML and chunks it into manageable, token-aware fragments.
-2.  **Pruning**: A lightweight LLM (LoRA-powered) filters out noise and selects only relevant HTML chunks.
-3.  **Extraction**: A task-specific LLM maps the pruned HTML content directly to a structured JSON schema.
-4.  **Postprocessing**: Validates the JSON output and resolves source XPaths via fuzzy matching.
+1.  **Preprocessor**: Fetches raw HTML and chunks it into manageable, token-aware fragments.
+2.  **AI Extractor**: Divided into two stages:
+    *   **Pruner**: A lightweight LLM (LoRA-powered) filters out noise and selects only relevant HTML chunks.
+    *   **Extractor**: A task-specific LLM maps the pruned HTML content directly to a structured JSON schema or natural language answer.
+3.  **Postprocessor**: Validates the output and resolves source XPaths via Grounded XPath Resolution (GXR).
 
 ## 📦 Installation
 
@@ -93,7 +94,7 @@ If you use AXEtract in your research, please cite our paper:
 ```bibtex
 @article{mansour2026axe,
   title={AXE: Low-Cost Cross-Domain Web Structured Information Extraction},
-  author={Mansour, Abdelrahman and Alshaer, Khaled},
+  author={Abdelrahman Mansour and Khaled W. Alshaer and Motaz El-Saban},
   journal={arXiv preprint},
   year={2026}
 }

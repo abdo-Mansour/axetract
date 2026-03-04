@@ -183,10 +183,10 @@ class TestWorkerMergeHtml:
         assert "\n" not in result
 
     @patch(
-        "axetract.utils.html_util.merge_html_chunks", return_value="<html>\nLine1\nLine2\n</html>"
+        "axetract.pruner.axe_pruner.merge_html_chunks", return_value="<html>\nLine1\nLine2\n</html>"
     )
     def test_merge_called_with_correct_args(self, mock_merge):
-        chunks = [["x"]]
+        chunks = [[{"xpath": "/p", "content": "x"}]]
         content = "<p>raw</p>"
         _worker_merge_html((chunks, content))
         mock_merge.assert_called_once_with(chunks, content)

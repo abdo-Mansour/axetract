@@ -1,9 +1,12 @@
+import logging
 from typing import List
 
 from axetract.data_types import AXESample, Status
 from axetract.extractor.base_extractor import BaseExtractor
 from axetract.llm.base_client import BaseClient
 from axetract.utils.json_util import is_schema
+
+logger = logging.getLogger(__name__)
 
 
 class AXEExtractor(BaseExtractor):
@@ -95,7 +98,7 @@ class AXEExtractor(BaseExtractor):
 
         # 2. Run QA Batch (Adapter: "qa")
         if qa_prompts:
-            # print(f"Processing {len(qa_prompts)} QA queries...")
+            logger.info("Processing %d QA queries...", len(qa_prompts))
             qa_responses = self.llm_extractor_client.call_batch(qa_prompts, adapter_name="qa")
 
             # Map back to original indices
@@ -104,7 +107,7 @@ class AXEExtractor(BaseExtractor):
 
         # 3. Run Schema Batch (Adapter: "schema")
         if schema_prompts:
-            # print(f"Processing {len(schema_prompts)} Schema queries...")
+            logger.info("Processing %d Schema queries...", len(schema_prompts))
             schema_responses = self.llm_extractor_client.call_batch(
                 schema_prompts, adapter_name="schema"
             )

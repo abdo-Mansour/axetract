@@ -15,7 +15,7 @@
 
 -   :material-rocket-launch:{ .lg .middle } **Extreme Efficiency**
     ---
-    Achieve GPT-4 level extraction accuracy with 0.6B parameter models.
+    Achieve state-of-the-art extraction accuracy with 0.6B parameter models.
 
 -   :material-brain:{ .lg .middle } **LoRA Switching**
     ---
@@ -33,14 +33,14 @@
 
 ## Why Axetract?
 
-Traditional web scrapers are either brittle (CSS selectors) or expensive (GPT-4). Axetract provides a middle ground: the intelligence of an LLM with the speed and cost of a local 0.6B model.
+Traditional web extractors are often a trade-off between brittle manual heuristics and the prohibitive cost of Large Language Models. Axetract provides a solution: the intelligence and flexibility of an LLM with the efficiency of a local 0.6B model via intelligent DOM pruning.
 
-| Feature | Axetract (0.6B) | GPT-4o / Claude 3.5 |
-|---------|-----------------|---------------------|
-| Accuracy (SWDE F1) | **88.1%** | ~90% |
-| Latency | **< 1s** | 5s - 15s |
-| Cost | **Free (Local)** | High (Per Token) |
-| Privacy | **100% On-Prem** | Cloud-dependent |
+| Feature | Axetract (0.6B) |
+|---------|-----------------|
+| Accuracy (SWDE F1) | **88.1%** |
+| Compute Required | **Low (0.6B)** |
+| Cost | **Free (Local)** |
+| Privacy | **100% On-Prem** |
 
 ---
 

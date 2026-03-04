@@ -1,6 +1,9 @@
+import logging
 import random
 import time
 from functools import wraps
+
+logger = logging.getLogger(__name__)
 
 # These imports seem to point to a non-existent module based on previous logs?
 # Actually, I should check if axetract.utils.llm_client exists.
@@ -32,9 +35,11 @@ def retry_on_ratelimit(max_retries: int = 5, base_delay: float = 1.0, max_delay:
                     if attempt == max_retries - 1:
                         raise e
                     sleep = min(max_delay, delay) + random.uniform(0, delay)
-                    print(
-                        f"Rate limited. Retrying in {sleep:.2f}s... "
-                        f"(Attempt {attempt + 1}/{max_retries})"
+                    logger.warning(
+                        "Rate limited. Retrying in %.2fs... (Attempt %d/%d)",
+                        sleep,
+                        attempt + 1,
+                        max_retries,
                     )
                     time.sleep(sleep)
                     delay *= 2

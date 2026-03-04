@@ -75,7 +75,7 @@ class AXEPipeline:
                 "max_tokens": 1024,
                 "engine_args": {
                     "gpu_memory_utilization": 0.8,
-                    "max_model_len": 1024,
+                    "max_model_len": 4096,
                     "enable_lora": True,
                     "max_loras": 3,
                     "max_lora_rank": 64,

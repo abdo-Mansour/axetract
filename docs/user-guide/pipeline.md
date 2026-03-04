@@ -43,7 +43,7 @@ from axetract.data_types import AXESample
 
 batch = [
     AXESample(content="...", query="..."),
-    AXESample(content="...", schema=MySchema)
+    AXESample(content="...", schema_model=MySchema)
 ]
 results = pipeline.process_batch(batch)
 ```

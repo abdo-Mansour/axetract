@@ -1,4 +1,5 @@
 import copy
+import logging
 import re
 from difflib import SequenceMatcher
 from typing import List, Set, Tuple
@@ -8,6 +9,8 @@ from bs4 import BeautifulSoup, Comment, NavigableString, Tag
 from html_chunking import get_html_chunks
 from htmlrag import clean_html as clean_html_rag
 from lxml import etree, html
+
+logger = logging.getLogger(__name__)
 
 
 class SmartHTMLProcessor:
@@ -245,8 +248,8 @@ class SmartHTMLProcessor:
         selected_chunks = merged_list
 
         original_html = clean_html(original_html)
-        print("Selected Chunks: ", selected_chunks)
-        print("HTML : ", original_html)
+        logger.debug("Selected Chunks: %s", selected_chunks)
+        logger.debug("HTML : %s", original_html)
         root = html.fromstring(original_html)
         tree = root.getroottree()
 
@@ -356,7 +359,7 @@ def merge_html_chunks(chunks: List[str], fallback_content: str) -> str:
                 merged_list.append((c["xpath"], c["content"]))
 
         if len(merged_list) == 0:
-            print("FALLBACK USED")
+            logger.warning("FALLBACK USED")
             final_content = clean_html(fallback_content)
             return final_content
         # print("MERGINGGG")

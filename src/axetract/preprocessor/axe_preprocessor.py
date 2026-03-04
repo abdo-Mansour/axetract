@@ -121,7 +121,6 @@ class AXEPreprocessor(BasePreprocessor):
                 results[idx] = res
 
         for i, res in enumerate(results):
-            print( i , res)
             batch[i].chunks = [AXEChunk(chunkid=chunk['chunkid'], content=chunk['chunkcontent']) for chunk in res['chunks']]
             
         return batch

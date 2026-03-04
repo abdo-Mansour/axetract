@@ -132,9 +132,6 @@ class AXEPostprocessor(BasePostprocessor):
 
         # Re-assemble results in the main process
         for sample, (parsed, xpaths) in zip(samples, parsed_results):
-            print("Sample: ", sample)
-            print("Parsed: ", parsed)
-            print("Xpaths: ", xpaths)
             sample.prediction = parsed
             sample.xpaths = xpaths
             

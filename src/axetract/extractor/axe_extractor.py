@@ -39,16 +39,19 @@ class AXEExtractor(BaseExtractor):
             query = data.query or data.schema_model
             content = data.current_html
             
-            # Convert Pydantic type to JSON schema if needed
+            # Convert Query/Schema to appropriate string if it is a dictionary or Pydantic model
             if query is not None and not isinstance(query, str):
-                from pydantic import BaseModel
-                if isinstance(query, type) and issubclass(query, BaseModel):
-                    # For Pydantic V2 use model_json_schema, for V1 use schema_json
-                    if hasattr(query, 'model_json_schema'):
-                        import json
-                        query = json.dumps(query.model_json_schema())
-                    elif hasattr(query, 'schema_json'):
-                        query = query.schema_json()
+                import json
+                if isinstance(query, dict):
+                    query = json.dumps(query)
+                else:
+                    from pydantic import BaseModel
+                    if isinstance(query, type) and issubclass(query, BaseModel):
+                        # For Pydantic V2 use model_json_schema, for V1 use schema_json
+                        if hasattr(query, 'model_json_schema'):
+                            query = json.dumps(query.model_json_schema())
+                        elif hasattr(query, 'schema_json'):
+                            query = query.schema_json()
 
             if is_schema(query):
                 return self.schema_prompt_template.format(query=query, content=content)

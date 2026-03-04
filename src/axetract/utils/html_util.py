@@ -409,6 +409,8 @@ def custom_clean_html(html_content: str) -> str:
     Returns:
         cleaned HTML string (serialized back to HTML)
     """
+    if not html_content or not html_content.strip():
+        return ""
     parser = html.HTMLParser(remove_comments=False)
     doc = html.fromstring(html_content, parser=parser)
     

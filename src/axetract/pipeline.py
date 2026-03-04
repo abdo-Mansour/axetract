@@ -114,11 +114,52 @@ class AXEPipeline:
 
         return self.process_batch([sample])[0]
 
-    def process_batch(self, batch: List[AXESample]) -> List[AXEResult]:
+    def process_many(
+        self,
+        inputs: List[str],
+        query: Optional[str] = None,
+        schema: Optional[Union[Type[BaseModel], str, Dict[str, Any]]] = None,
+    ) -> List[AXEResult]:
+        """
+        Helper method to apply the EXACT SAME query or schema across multiple documents simultaneously.
+        """
+        batch = [
+            AXESample(
+                id=str(uuid.uuid4()),
+                content=data,
+                is_content_url=data.strip().startswith(("http://", "https://")),
+                query=query,
+                schema_model=schema,
+            )
+            for data in inputs
+        ]
+        return self.process_batch(batch)
+
+    def process_batch(self, batch: List[Union[AXESample, Dict[str, Any]]]) -> List[AXEResult]:
         """
         Main execution flow of the pipeline.
         Calls the components in sequence: Preprocessor -> Pruner -> Extractor -> Postprocessor.
+        Accepts a list of AXESample objects OR a list of dictionaries with keys like 'input_data', 'query', 'schema'.
         """
+        # 0. Convert Dicts to AXESamples if necessary
+        formatted_batch = []
+        for item in batch:
+            if isinstance(item, dict):
+                input_data = item.get("input_data", "")
+                formatted_batch.append(
+                    AXESample(
+                        id=str(item.get("id", uuid.uuid4())),
+                        content=input_data,
+                        is_content_url=input_data.strip().startswith(("http://", "https://")),
+                        query=item.get("query"),
+                        schema_model=item.get("schema"),
+                    )
+                )
+            else:
+                formatted_batch.append(item)
+                
+        batch = formatted_batch
+
         # 1. Preprocess (Fetch & Chunk)
         batch = self.preprocessor(batch)
 

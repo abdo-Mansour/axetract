@@ -4,6 +4,9 @@ from json_repair import repair_json
 from typing import Any, Dict, Iterable, List, Optional, Union
 
 def is_schema(text: Any) -> bool:
+    if isinstance(text, dict):
+        return True
+    
     if not isinstance(text, str):
         # Check if it's a Pydantic BaseModel class
         try:

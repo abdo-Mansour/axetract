@@ -1,51 +1,11 @@
-"""Tests for AXEPreprocessor and _chunk_worker.
-
-Note: Pydantic is currently incompatible with Python 3.14 RC1, so we
-monkey-patch the data_types module with a plain dataclass stand-in for
-AXESample before importing the preprocessor code.
-"""
 from __future__ import annotations
 
 import sys
-import types
-from dataclasses import dataclass, field
-from typing import Optional
 from unittest.mock import patch, MagicMock
 
 import pytest
-
-# ---------------------------------------------------------------------------
-# Provide a lightweight AXESample stand-in so the preprocessor module can be
-# imported without triggering the broken Pydantic path on Python 3.14 RC.
-# ---------------------------------------------------------------------------
-
-@dataclass
-class _AXESample:
-    id: str
-    content: str
-    is_content_url: bool
-    query_or_schema: bool
-    original_html: str = ""
-    current_html: str = ""
-    prediction: Optional[dict] = None
-    xpaths: Optional[dict] = None
-    status: str = "pending"
-
-
-# Build a fake axetract.data_types module and inject it into sys.modules
-# BEFORE axetract.preprocessor.axe_preprocessor is imported.
-_fake_dt = types.ModuleType("axetract.data_types")
-_fake_dt.AXESample = _AXESample  # type: ignore[attr-defined]
-
-# Also ensure that parent packages exist so the import chain works.
-if "axetract" not in sys.modules:
-    sys.modules["axetract"] = types.ModuleType("axetract")
-sys.modules["axetract.data_types"] = _fake_dt
-
-# Now we can safely import the module under test.
-from axetract.preprocessor.axe_preprocessor import AXEPreprocessor, _chunk_worker  # noqa: E402
-
-AXESample = _AXESample  # alias for convenience in tests
+from axetract.data_types import AXESample, AXEChunk
+from axetract.preprocessor.axe_preprocessor import AXEPreprocessor, _chunk_worker
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -56,13 +16,11 @@ def _make_sample(
     id: str = "s1",
     content: str = "<p>hello</p>",
     is_content_url: bool = False,
-    query_or_schema: bool = False,
 ) -> AXESample:
     return AXESample(
         id=id,
         content=content,
         is_content_url=is_content_url,
-        query_or_schema=query_or_schema,
     )
 
 
@@ -81,11 +39,12 @@ class TestAXEPreprocessorInit:
         assert p.strip_attrs is True
         assert p.strip_links is True
         assert p.keep_tags is False
-        assert p.use_clean_rag is False
-        assert p.use_clean_chunker is False
+        # Defaults from the real implementation
+        assert p.use_clean_rag is True
+        assert p.use_clean_chunker is True
         assert p.chunk_size == 1000
         assert p.attr_cutoff_len == 100
-        assert p.experiment is None
+        assert p.disable_chunking is False
 
     def test_custom_values(self):
         p = AXEPreprocessor(
@@ -125,7 +84,7 @@ class TestProcessFetching:
     def test_url_sample_is_fetched(self, mock_fetch, mock_clean, mock_chunk):
         sample = _make_sample(content="https://example.com", is_content_url=True)
         p = AXEPreprocessor()
-        result = p.process(sample)
+        result = p(sample)
 
         mock_fetch.assert_called_once_with("https://example.com")
         # After fetching, is_content_url should be False and content replaced
@@ -138,7 +97,7 @@ class TestProcessFetching:
     def test_non_url_sample_not_fetched(self, mock_fetch, mock_clean, mock_chunk):
         sample = _make_sample(content="<p>inline</p>", is_content_url=False)
         p = AXEPreprocessor()
-        p.process(sample)
+        p(sample)
 
         mock_fetch.assert_not_called()
 
@@ -148,7 +107,7 @@ class TestProcessFetching:
     def test_fetch_error_stores_error_in_content(self, mock_fetch, mock_clean, mock_chunk):
         sample = _make_sample(content="https://bad-url.com", is_content_url=True)
         p = AXEPreprocessor()
-        result = p.process(sample)
+        result = p(sample)
 
         assert "[Fetch ERROR]" in result[0].content
         assert result[0].is_content_url is False
@@ -166,7 +125,7 @@ class TestProcessBatching:
     def test_single_sample_wrapped_in_list(self, mock_clean, mock_chunk):
         sample = _make_sample()
         p = AXEPreprocessor()
-        result = p.process(sample)
+        result = p(sample)
         assert isinstance(result, list)
         assert len(result) == 1
 
@@ -174,7 +133,7 @@ class TestProcessBatching:
     @patch("axetract.preprocessor.axe_preprocessor.clean_html", side_effect=lambda html_content, **kw: html_content)
     def test_empty_batch_returns_empty_list(self, mock_clean, mock_chunk):
         p = AXEPreprocessor()
-        result = p.process([])
+        result = p([])
         assert result == []
 
     @patch("axetract.preprocessor.axe_preprocessor.chunk_html_content", return_value=["c"])
@@ -182,7 +141,7 @@ class TestProcessBatching:
     def test_batch_of_multiple_samples(self, mock_clean, mock_chunk):
         samples = [_make_sample(id=f"s{i}") for i in range(5)]
         p = AXEPreprocessor()
-        result = p.process(samples)
+        result = p(samples)
         assert len(result) == 5
 
 
@@ -199,11 +158,13 @@ class TestProcessExecutor:
     @patch("axetract.preprocessor.axe_preprocessor.ThreadPoolExecutor")
     def test_thread_executor_when_cpu_workers_le_1(self, mock_thread, mock_proc, mock_clean, mock_chunk):
         # cpu_workers=1 → ThreadPoolExecutor
-        mock_thread.return_value.__enter__ = MagicMock(return_value=MagicMock(map=MagicMock(return_value=iter([]))))
+        sample = _make_sample()
+        # Mock map to return the input sample list
+        mock_thread.return_value.__enter__.return_value.map.side_effect = lambda f, items: map(f, items)
         mock_thread.return_value.__exit__ = MagicMock(return_value=False)
 
         p = AXEPreprocessor(cpu_workers=1)
-        p.process(_make_sample())
+        p(sample)
 
         # ThreadPoolExecutor is used for both fetch AND chunk phases, so it
         # should be called at least twice (fetch pool + chunk pool).
@@ -222,7 +183,7 @@ class TestProcessExecutor:
         mock_proc.return_value.__exit__ = MagicMock(return_value=False)
 
         p = AXEPreprocessor(cpu_workers=4)
-        p.process(_make_sample())
+        p(_make_sample())
 
         mock_proc.assert_called_once()
 
@@ -327,7 +288,7 @@ class TestProcessIntegration:
     def test_full_pipeline_url_sample(self, mock_fetch, mock_clean, mock_chunk):
         sample = _make_sample(content="https://example.com", is_content_url=True)
         p = AXEPreprocessor(fetch_workers=2, cpu_workers=1, chunk_size=200)
-        result = p.process(sample)
+        result = p(sample)
 
         # fetch was called
         mock_fetch.assert_called_once()
@@ -345,7 +306,7 @@ class TestProcessIntegration:
             _make_sample(id="c", content="<p>C</p>"),
         ]
         p = AXEPreprocessor()
-        result = p.process(samples)
+        result = p(samples)
 
         assert len(result) == 3
         # clean_html should be called once per sample (inside _chunk_worker)
@@ -361,7 +322,7 @@ class TestProcessIntegration:
             _make_sample(id="inline1", content="<p>inline</p>", is_content_url=False),
         ]
         p = AXEPreprocessor()
-        result = p.process(samples)
+        result = p(samples)
 
         assert len(result) == 2
         mock_fetch.assert_called_once_with("https://a.com")

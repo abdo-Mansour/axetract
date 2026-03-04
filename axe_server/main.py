@@ -1,0 +1,81 @@
+import sys
+import os
+
+# Add src to path so we can import axetract
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
+
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from typing import List, Optional, Union, Any, Dict
+from axetract.pipeline import AXEPipeline
+from axetract.data_types import AXESample, AXEResult, Status
+import uvicorn
+
+app = FastAPI(title="AXEtract API Server")
+
+# Global pipeline instance
+pipeline = None
+
+class ProcessRequest(BaseModel):
+    input_data: str
+    query: Optional[str] = None
+    schema_model: Optional[Union[str, Dict[str, Any]]] = None
+
+class BatchProcessRequest(BaseModel):
+    items: List[ProcessRequest]
+
+@app.on_event("startup")
+async def startup_event():
+    global pipeline
+    print("Initializing AXEPipeline...")
+    # In a real scenario, you might want to pass configs via environment variables
+    use_vllm = os.getenv("AXE_USE_VLLM", "False").lower() == "true"
+    try:
+        pipeline = AXEPipeline.from_config(use_vllm=use_vllm)
+        print("AXEPipeline initialized successfully.")
+    except Exception as e:
+        print(f"Error initializing pipeline: {e}")
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "pipeline_initialized": pipeline is not None}
+
+@app.post("/process", response_model=AXEResult)
+async def process(request: ProcessRequest):
+    if pipeline is None:
+        raise HTTPException(status_code=503, detail="Pipeline not initialized")
+    try:
+        result = pipeline.process(
+            input_data=request.input_data,
+            query=request.query,
+            schema=request.schema_model
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/process_batch", response_model=List[AXEResult])
+async def process_batch(request: BatchProcessRequest):
+    if pipeline is None:
+        raise HTTPException(status_code=503, detail="Pipeline not initialized")
+    try:
+        batch = [
+            {
+                "input_data": item.input_data,
+                "query": item.query,
+                "schema": item.schema_model
+            }
+            for item in request.items
+        ]
+        results = pipeline.process_batch(batch)
+        return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+def main():
+    port = int(os.getenv("AXE_PORT", 8000))
+    host = os.getenv("AXE_HOST", "0.0.0.0")
+    uvicorn.run(app, host=host, port=port)
+
+if __name__ == "__main__":
+    main()

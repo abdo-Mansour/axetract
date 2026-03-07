@@ -1,6 +1,16 @@
 import logging
 import os
+import sys
 from dotenv import load_dotenv
+
+# Add src to path before any axetract imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+
+from axetract.utils.logging_util import setup_logging
+
+setup_logging(
+    log_file=os.path.join(os.path.dirname(__file__), "axe_server.log"),
+)
 
 # 1. Load env file
 load_dotenv()
@@ -8,15 +18,11 @@ load_dotenv()
 # 2. FORCE V1 OFF (Must be done before axetract/vllm imports)
 os.environ["VLLM_USE_V1"] = "0"
 
-import sys
 from typing import Any, Dict, List, Optional, Union
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-
-# Add src to path so we can import axetract
-sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from axetract.data_types import AXEResult
 from axetract.pipeline import AXEPipeline
@@ -47,12 +53,12 @@ class BatchProcessRequest(BaseModel):
 async def startup_event():
     """Initialize the global AXEPipeline on server startup."""
     global pipeline
-    logger.info("Initializing AXEPipeline...")
+    logger.debug("Initializing AXEPipeline...")
     # In a real scenario, you might want to pass configs via environment variables
     use_vllm = os.getenv("AXE_USE_VLLM", "False").lower() == "true"
     try:
         pipeline = AXEPipeline.from_config(use_vllm=use_vllm)
-        logger.info("AXEPipeline initialized successfully.")
+        logger.debug("AXEPipeline initialized successfully.")
     except Exception as e:
         logger.error("Error initializing pipeline: %s", e)
 
@@ -75,6 +81,8 @@ async def process(request: ProcessRequest):
     """
     if pipeline is None:
         raise HTTPException(status_code=503, detail="Pipeline not initialized")
+    
+    logger.debug("Received process request for input: %s", request.input_data[:100] + "...")
     try:
         result = pipeline.process(
             input_data=request.input_data, query=request.query, schema=request.schema_model
@@ -96,6 +104,8 @@ async def process_batch(request: BatchProcessRequest):
     """
     if pipeline is None:
         raise HTTPException(status_code=503, detail="Pipeline not initialized")
+    
+    logger.debug("Received process_batch request with %d items", len(request.items))
     try:
         batch = [
             {"input_data": item.input_data, "query": item.query, "schema": item.schema_model}

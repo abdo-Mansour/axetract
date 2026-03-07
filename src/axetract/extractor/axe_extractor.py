@@ -98,27 +98,36 @@ class AXEExtractor(BaseExtractor):
 
         # 2. Run QA Batch (Adapter: "qa")
         if qa_prompts:
-            logger.info("Processing %d QA queries...", len(qa_prompts))
+            logger.debug("Processing %d QA queries...", len(qa_prompts))
+            for idx, (orig_idx, q) in enumerate(zip(qa_indices, queries)):
+                if not is_schema(q):
+                    logger.debug("  [QA] sample %d query: %s", orig_idx, q)
+                    logger.debug("  [QA] sample %d prompt: %s", orig_idx, qa_prompts[idx])
             qa_responses = self.llm_extractor_client.call_batch(qa_prompts, adapter_name="qa")
 
-            # Map back to original indices
             for original_idx, response in zip(qa_indices, qa_responses):
+                logger.debug("  [QA] sample %d response: %s", original_idx, response)
                 final_responses[original_idx] = response
 
         # 3. Run Schema Batch (Adapter: "schema")
         if schema_prompts:
-            logger.info("Processing %d Schema queries...", len(schema_prompts))
+            logger.debug("Processing %d Schema queries...", len(schema_prompts))
+            for idx, (orig_idx, q) in enumerate(zip(schema_indices, queries)):
+                if is_schema(q):
+                    logger.debug("  [Schema] sample %d schema: %s", orig_idx, q)
+                    logger.debug("  [Schema] sample %d prompt: %s", orig_idx, schema_prompts[idx])
             schema_responses = self.llm_extractor_client.call_batch(
                 schema_prompts, adapter_name="schema"
             )
 
-            # Map back to original indices
             for original_idx, response in zip(schema_indices, schema_responses):
+                logger.debug("  [Schema] sample %d response: %s", original_idx, response)
                 final_responses[original_idx] = response
 
         for sample, response in zip(samples, final_responses):
             sample.prediction = response
             sample.status = Status.SUCCESS
+            logger.debug("  [Extractor] sample %s final prediction: %s", sample.id, response)
         return samples
 
     def __call__(self, samples: List[AXESample]) -> List[AXESample]:

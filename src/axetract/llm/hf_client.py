@@ -1,3 +1,4 @@
+import logging
 import threading
 from typing import Iterable, List, Optional
 
@@ -6,6 +7,8 @@ from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from axetract.llm.base_client import BaseClient
+
+logger = logging.getLogger(__name__)
 
 # 3. Hugging Face Transformers & PEFT
 try:
@@ -26,6 +29,8 @@ class HuggingFaceClient(BaseClient):
     """Connects directly to Hugging Face transformers.
 
     Supports native tensor batching and on-the-fly PEFT LoRA switching.
+    Optimized for maximum throughput with Flash Attention 2, torch.compile,
+    and static KV cache when available.
     """
 
     def __init__(self, config: dict):
@@ -51,11 +56,31 @@ class HuggingFaceClient(BaseClient):
             self.tokenizer.pad_token = self.tokenizer.eos_token
         self.tokenizer.padding_side = "left"
 
-        # Load Base Model
+        # Load Base Model with performance optimizations
         model_kwargs = config.get(
             "model_kwargs", {"device_map": "auto", "torch_dtype": torch.float16}
         )
-        self.model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
+
+        # ── Flash Attention 2 (opt-in) ──
+        # Can give ~2-4x faster attention, but may conflict with PEFT/LoRA.
+        # Only enable if you've tested it with your specific model+adapter setup.
+        use_flash_attn = config.get("use_flash_attention", False)
+        if use_flash_attn and "attn_implementation" not in model_kwargs:
+            model_kwargs["attn_implementation"] = "flash_attention_2"
+            logger.debug("Enabling Flash Attention 2 for faster inference.")
+
+        try:
+            self.model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
+        except (ValueError, ImportError) as e:
+            # Flash Attention 2 unavailable — fall back to default
+            if "flash" in str(e).lower() or "attn_implementation" in str(e).lower():
+                logger.warning(
+                    "Flash Attention 2 not available (%s). Falling back to default attention.", e
+                )
+                model_kwargs.pop("attn_implementation", None)
+                self.model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
+            else:
+                raise
 
         # Load LoRA Adapters using PEFT
         self.lora_config_raw = config.get("lora_modules", {}) or {}
@@ -82,6 +107,20 @@ class HuggingFaceClient(BaseClient):
                 )
 
         self.model.eval()
+
+        # ── torch.compile ──
+        # JIT-compiles the model graph, eliminating Python overhead and fusing
+        # GPU kernels. Gives ~1.5-2x speedup after warmup.
+        use_compile = config.get("use_torch_compile", False)
+        if use_compile:
+            try:
+                compile_mode = config.get("compile_mode", "reduce-overhead")
+                logger.debug("Compiling model with torch.compile (mode=%s)...", compile_mode)
+                self.model = torch.compile(self.model, mode=compile_mode)
+                logger.debug("torch.compile succeeded.")
+            except Exception as e:
+                logger.warning("torch.compile failed (%s). Continuing without compilation.", e)
+
         self._generate_lock = threading.Lock()  # Vital to prevent adapter state collision
 
         # Defaults

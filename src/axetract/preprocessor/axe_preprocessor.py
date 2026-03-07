@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import multiprocessing as mp
 import traceback
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from typing import Any, Dict, List
@@ -11,16 +12,16 @@ from axetract.utils.html_util import chunk_html_content, clean_html, fetch_conte
 
 def _chunk_worker(args: tuple) -> Dict[str, Any]:
     sample, config, idx = args
-    cleaned_text = clean_html(
-        html_content=sample.content,
-        extra_remove_tags=config.extra_remove_tags,
-        strip_attrs=config.strip_attrs,
-        strip_links=config.strip_links,
-        keep_tags=config.keep_tags,
-        use_clean_rag=config.use_clean_rag,
-    )
-
     try:
+        cleaned_text = clean_html(
+            html_content=sample.content,
+            extra_remove_tags=config.extra_remove_tags,
+            strip_attrs=config.strip_attrs,
+            strip_links=config.strip_links,
+            keep_tags=config.keep_tags,
+            use_clean_rag=config.use_clean_rag,
+        )
+
         if not cleaned_text:
             return {
                 "doc_id": idx,
@@ -47,13 +48,12 @@ def _chunk_worker(args: tuple) -> Dict[str, Any]:
         return {"doc_id": idx, "chunks": chunks_list}
     except Exception as e:
         tb = traceback.format_exc()
-        err_payload = {
+        return {
             "doc_id": idx,
             "chunks": [
                 {"chunkid": f"{idx}-err", "chunkcontent": f"[ERROR {type(e).__name__}] {e}\n{tb}"}
             ],
         }
-        return idx, err_payload
 
 
 class AXEPreprocessor(BasePreprocessor):
@@ -76,16 +76,16 @@ class AXEPreprocessor(BasePreprocessor):
     def __init__(
         self,
         name: str = "AXEPreprocessor",
-        fetch_workers: int = 1,
-        cpu_workers: int = 1,
-        extra_remove_tags: List[str] | None = None,
+        fetch_workers: int = mp.cpu_count(),
+        cpu_workers: int = mp.cpu_count(),
+        extra_remove_tags: List[str] | None = ["header", "footer"],
         strip_attrs: bool = True,
         strip_links: bool = True,
-        keep_tags: bool = False,
+        keep_tags: bool = True,
         use_clean_rag: bool = True,
         use_clean_chunker: bool = True,
-        chunk_size: int = 1000,
-        attr_cutoff_len: int = 100,
+        chunk_size: int = 2000,
+        attr_cutoff_len: int = 5,
         disable_chunking: bool = False,
     ):
         """Initialize the preprocessor.

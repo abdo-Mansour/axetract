@@ -3,6 +3,12 @@ import json
 import requests
 
 
+def read_html_file(file_path: str) -> str:
+    """Read and return the contents of an HTML file."""
+    with open(file_path, "r", encoding="utf-8") as f:
+        return f.read()
+
+
 def test_single():
     """Test processing a single URL."""
     url = "http://localhost:8000/process"

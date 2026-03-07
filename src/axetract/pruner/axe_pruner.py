@@ -1,7 +1,8 @@
 import ast
+import logging
 import os
 import re
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from typing import Iterable, List
 
 from axetract.data_types import AXESample
@@ -11,6 +12,8 @@ from axetract.utils.html_util import (
     SmartHTMLProcessor,
     merge_html_chunks,
 )
+
+logger = logging.getLogger(__name__)
 
 # ==============================================================================
 # 1. STANDALONE HELPER FUNCTIONS (Moved out of class to allow Pickling)
@@ -205,7 +208,10 @@ class AXEPruner(BasePruner):
             List[AXESample]: Samples with current_html set to pruned content.
         """
         if len(batch) == 0:
+            logger.debug("_filter received empty batch, skipping.")
             return batch
+
+        logger.debug("[Pruner] Starting _filter on %d samples.", len(batch))
 
         # Prepare arguments: (content, query, template_string)
         # Note: We pass the template STRING, not self or config.
@@ -213,14 +219,18 @@ class AXEPruner(BasePruner):
         worker_args = []
         for sample in batch:
             for chunk in sample.chunks:
-                worker_args.append((chunk.content, sample.query, template_str))
+                # what query is it getting ? TODO: if it doesn't work handle it well
+                worker_args.append((chunk.content, sample.query or sample.schema_model, template_str))
 
         max_workers = getattr(self, "num_workers", None) or min(32, (os.cpu_count() or 1) * 4)
+        total_chunks = len(worker_args)
+        logger.debug("[Pruner] Preparing %d chunk(s) across %d sample(s) with %d worker(s).",
+                    total_chunks, len(batch), max_workers)
 
         # 2. Parallel CPU Execution (HTML Parsing + Prompt Gen)
-        with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            # Map returns an iterator, list() consumes it
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
             results = list(executor.map(_worker_filter_prep, worker_args))
+        logger.debug("[Pruner] HTML parsing + prompt generation complete for %d chunk(s).", total_chunks)
 
         # Unpack results: results is list of (chunk_xpaths, prompt)
         all_rows_xpaths, prompts = zip(*results)
@@ -228,13 +238,16 @@ class AXEPruner(BasePruner):
         prompts = list(prompts)
 
         # 3. Batch GPU Inference (Fast)
+        logger.debug("[Pruner] Sending %d prompt(s) to LLM (adapter=pruner).", len(prompts))
         llm_results = self.llm_pruner_client.call_batch(prompts, adapter_name="pruner")
-
+        #TODO: check the pruner response
+        logger.debug("[Pruner] Raw LLM responses: %s", llm_results)
         # 4. Process Results (Light CPU work)
-        final_pruned_contents = []  # List of list of xpaths
+        final_pruned_contents = []  # List of list of xpaths pairs
 
-        for response, row_xpaths in zip(llm_results, all_rows_xpaths):
+        for i, (response, row_xpaths) in enumerate(zip(llm_results, all_rows_xpaths)):
             if not response:
+                logger.warning("[Pruner] Empty LLM response for chunk %d — keeping full chunk.", i)
                 final_pruned_contents.append(row_xpaths)
                 continue
 
@@ -245,39 +258,53 @@ class AXEPruner(BasePruner):
                 try:
                     chosen = ast.literal_eval(inside)
                 except Exception:
+                    logger.warning("[Pruner] Failed to parse index list for chunk %d: %r", i, inside)
                     chosen = []
+            else:
+                logger.warning("[Pruner] No index list found in LLM response for chunk %d.", i)
 
             row_final_list = []
             for idx in chosen:
                 if isinstance(idx, int) and 0 <= idx < len(row_xpaths):
                     row_final_list.append(row_xpaths[idx])
 
+            logger.debug("[Pruner] Chunk %d: kept %d/%d xpath node(s).",
+                         i, len(row_final_list), len(row_xpaths))
             final_pruned_contents.append(row_final_list)
 
         # 5. Reconstruct Samples
-        sample_to_pruned_chunks = {}
+        sample_to_pruned_mini_chunks = {}
+        chunk_idx = 0
         for i, sample in enumerate(batch):
             sample_xpath_list = []
             for chunk in sample.chunks:
                 chunk_id = chunk.chunkid
                 sample_id = chunk_id.split("-")[0]
-                pruned_chunk = final_pruned_contents[i]
+                pruned_chunk = final_pruned_contents[chunk_idx]
                 sample_xpath_list.append(pruned_chunk)
-            sample_to_pruned_chunks[sample_id] = sample_xpath_list
-
-        # 6. Merge
+                chunk_idx += 1
+            sample_to_pruned_mini_chunks[sample_id] = sample_xpath_list
+        logger.debug("[Pruner] Sample → pruned mini-chunks map: %s", sample_to_pruned_mini_chunks)
+        # 6. Merge HTML
         merge_worker_args = []
-        for key, value in sample_to_pruned_chunks.items():
+        for key, value in sample_to_pruned_mini_chunks.items():
             sample = batch[int(key)]
             merge_worker_args.append((value, sample.content))
 
-        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        logger.debug("[Pruner] Merging HTML for %d sample(s).", len(merge_worker_args))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
             new_full_content = list(executor.map(_worker_merge_html, merge_worker_args))
 
         # 7. Update Samples
         for i, sample in enumerate(batch):
+            before = len(sample.content) if sample.content else 0
+            after = len(new_full_content[i]) if new_full_content[i] else 0
+            logger.debug("[Pruner] Sample %d: HTML size %d → %d chars (%.1f%% reduction).",
+                        i, before, after, 100 * (1 - after / before) if before else 0)
+            logger.debug("Sample %d: HTML content: %s", i, new_full_content[i])
             sample.current_html = new_full_content[i]
 
+        logger.debug("[Pruner] _filter complete. Returning %d sample(s).", len(batch))
         return batch
 
     def __call__(self, samples: List[AXESample]) -> List[AXESample]:
@@ -289,5 +316,7 @@ class AXEPruner(BasePruner):
         Returns:
             List[AXESample]: Pruned samples.
         """
+        logger.debug("[Pruner] __call__ received %d sample(s).", len(samples))
         filtered_samples = self._filter(samples)
+        logger.debug("[Pruner] __call__ done. %d sample(s) returned.", len(filtered_samples))
         return filtered_samples

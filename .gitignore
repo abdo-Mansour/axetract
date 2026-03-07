@@ -4,4 +4,5 @@ __pycache__
 .pytest_cache
 site
 .ruff_cache
-
+ignore/
+*.log

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Any, Dict, List, Optional, Type, Union
+
+logger = logging.getLogger(__name__)
 
 from pydantic import BaseModel
 
@@ -72,10 +75,10 @@ class AXEPipeline:
         if llm_config is None:
             llm_config = {
                 "model_name": "Qwen/Qwen3-0.6B",
-                "max_tokens": 1024,
+                "max_tokens": 512,
                 "engine_args": {
                     "gpu_memory_utilization": 0.8,
-                    "max_model_len": 4096,
+                    "max_model_len": 8192,
                     "enable_lora": True,
                     "max_loras": 3,
                     "max_lora_rank": 64,
@@ -83,7 +86,7 @@ class AXEPipeline:
                 },
                 "generation_config": {
                     "temperature": 0.0,
-                    "top_p": 1.0,
+                    "top_p": 0.7,
                 },
                 "lora_modules": {
                     "pruner": {
@@ -91,8 +94,8 @@ class AXEPipeline:
                         "temperature": 0.0,
                     },
                     "qa": {
-                        "path": "abdo-Mansour/Extractor_Adaptor_Qwen3_Final",
-                        "temperature": 0.0,
+                        "path": "abdo-Mansour/Extractor_Adaptor_Qwen3_QA_websrc",
+                        "temperature": 1.0,
                     },
                     "schema": {
                         "path": "abdo-Mansour/Extractor_Adaptor_Qwen3_Final",
@@ -110,7 +113,7 @@ class AXEPipeline:
 
             lc = HuggingFaceClient(config=llm_config)
 
-        preprocessor = AXEPreprocessor(use_clean_chunker=True)
+        preprocessor = AXEPreprocessor(use_clean_chunker=True,chunk_size=1000)
         pruner = AXEPruner(llm_pruner_client=lc, llm_pruner_prompt=PRUNER_PROMPT)
         extractor = AXEExtractor(
             llm_extractor_client=lc,
@@ -212,20 +215,40 @@ class AXEPipeline:
                 formatted_batch.append(item)
 
         batch = formatted_batch
+        logger.debug("Starting pipeline processing for batch of size %d", len(batch))
 
         # 1. Preprocess (Fetch & Chunk)
+        logger.debug("Step 1: Running preprocessor...")
         batch = self.preprocessor(batch)
+        for i, sample in enumerate(batch):
+            chunks = sample.chunks or []
+            chunk_summary = [(c.chunkid, len(c.content)) for c in chunks]
+            logger.debug("  -> Sample %d after preprocessor: %d chunk(s) -> %s",
+                        i, len(chunks), chunk_summary)
 
         # 2. Prune (Optional step to reduce tokens)
         if self.pruner:
+            logger.debug("Step 2: Running pruner...")
             batch = self.pruner(batch)
+            for i, sample in enumerate(batch):
+                xpaths = sample.xpaths or []
+                logger.debug("  -> Sample %d after pruner: %d xpath(s) -> %s",
+                            i, len(xpaths), xpaths)
 
         # 3. Extract (The core extraction logic)
+        logger.debug("Step 3: Running extractor...")
         batch = self.extractor(batch)
+        for i, sample in enumerate(batch):
+            logger.debug("  -> Sample %d after extractor: %s", i, sample.prediction)
 
         # 4. Postprocess (Optional cleanup)
         if self.postprocessor:
+            logger.debug("Step 4: Running postprocessor...")
             batch = self.postprocessor(batch)
+            for i, sample in enumerate(batch):
+                logger.debug("  -> Sample %d after postprocessor: %s", i, sample.prediction)
+
+        logger.debug("Pipeline processing completed successfully.")
 
         # 5. Convert to Results
         results = [

@@ -254,6 +254,7 @@ vllm = [
 [package.dev-dependencies]
 dev = [
     { name = "mkdocs" },
+    { name = "mkdocs-autoapi", extra = ["python"] },
     { name = "mkdocs-material" },
     { name = "mkdocstrings", extra = ["python"] },
     { name = "pytest" },
@@ -275,7 +276,8 @@ provides-extras = ["vllm"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "mkdocs", specifier = ">=1.6.1" },
+    { name = "mkdocs", specifier = ">=1.6.1,<2.0.0" },
+    { name = "mkdocs-autoapi", extras = ["python"] },
     { name = "mkdocs-material", specifier = ">=9.7.3" },
     { name = "mkdocstrings", extras = ["python"], specifier = ">=1.0.3" },
     { name = "pytest", specifier = ">=8.0.0" },

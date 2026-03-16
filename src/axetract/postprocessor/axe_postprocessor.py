@@ -1,24 +1,39 @@
 import os
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from axetract.data_types import AXESample
 from axetract.postprocessor.base_postprocessor import BasePostprocessor
-from axetract.utils.html_util import find_closest_html_node, normalize_html_text
+from axetract.utils.html_util import (
+    build_html_search_index,
+    match_against_index,
+    normalize_html_text,
+)
 from axetract.utils.json_util import extract_and_repair_json, is_schema
 
 # ==============================================================================
-# WORKER FUNCTION (Top-level for Pickling)
+# WORKER FUNCTIONS (Top-level for Pickling)
 # ==============================================================================
 
 
-def _recursive_exact_extract(data: Any, content: str) -> Tuple[Any, Any]:
-    """Recursively perform fuzzy matching on dictionaries and lists. Returns (values, xpaths)."""
+def _recursive_exact_extract_indexed(data: Any, index: list) -> Tuple[Any, Any]:
+    """Recursively perform matching using a pre-built HTML search index.
+
+    Instead of re-parsing the HTML document for every leaf value, this
+    function uses the pre-built index (one parse) for all lookups.
+
+    Args:
+        data: Parsed JSON data (dict, list, or scalar).
+        index: Pre-built search index from build_html_search_index().
+
+    Returns:
+        Tuple of (matched_values, matched_xpaths).
+    """
     if isinstance(data, dict):
         result_vals = {}
         result_xpaths = {}
         for k, v in data.items():
-            val, xp = _recursive_exact_extract(v, content)
+            val, xp = _recursive_exact_extract_indexed(v, index)
             result_vals[k] = val
             result_xpaths[k] = xp
         return result_vals, result_xpaths
@@ -26,7 +41,7 @@ def _recursive_exact_extract(data: Any, content: str) -> Tuple[Any, Any]:
         vals = []
         xpaths = []
         for item in data:
-            val, xp = _recursive_exact_extract(item, content)
+            val, xp = _recursive_exact_extract_indexed(item, index)
             vals.append(val)
             xpaths.append(xp)
         return vals, xpaths
@@ -35,14 +50,14 @@ def _recursive_exact_extract(data: Any, content: str) -> Tuple[Any, Any]:
     else:
         try:
             val_str = str(data)
-            best_match = find_closest_html_node(html_text=content, search_text=val_str)
+            best_match = match_against_index(val_str, index)
 
             val = (
                 normalize_html_text(best_match["text"])
-                if best_match and "text" in best_match
+                if best_match and best_match.get("found")
                 else None
             )
-            xp = best_match["xpath"] if best_match and "xpath" in best_match else None
+            xp = best_match.get("xpath") if best_match and best_match.get("found") else None
 
             return val, xp
         except Exception as e:
@@ -54,6 +69,9 @@ def _safe_extract_worker(
 ) -> Tuple[Union[Dict[str, Any], str], Optional[Dict[str, Any]]]:
     """Optimized worker that takes raw strings instead of a meta dict.
 
+    Builds the HTML search index ONCE per document, then matches all
+    extracted fields against it — eliminating repeated HTML parsing.
+
     Returns (parsed_response, xpaths).
     """
     try:
@@ -61,9 +79,7 @@ def _safe_extract_worker(
             return "", None
 
         # 1. Parse JSON
-        # Determine if query is a schema or not
         if query is not None and not isinstance(query, str):
-            # If it's a Pydantic model or other type, we treat it as a schema
             is_schema_query = True
         else:
             query_str = str(query) if query is not None else ""
@@ -80,7 +96,7 @@ def _safe_extract_worker(
                 "__error__": "[PARSE_ERROR] expected JSON object (dict) from extract_and_repair_json"
             }, None
 
-        # 2. Exact Extraction (Heavy CPU part)
+        # 2. Exact Extraction (parse HTML ONCE, match all fields)
         xpaths = None
         if extract_exact:
             if not content:
@@ -88,7 +104,10 @@ def _safe_extract_worker(
                     "__error__": "[PARSE_ERROR] exact_extraction requested but no content provided"
                 }, None
 
-            parsed_response, xpaths = _recursive_exact_extract(parsed_response, content)
+            # Build index ONCE for this document
+            index = build_html_search_index(content)
+            # Match ALL fields against the pre-built index
+            parsed_response, xpaths = _recursive_exact_extract_indexed(parsed_response, index)
 
         return parsed_response, xpaths
 
@@ -106,6 +125,10 @@ class AXEPostprocessor(BasePostprocessor):
 
     This component handles JSON parsing, repair, and grounded XPath resolution (GXR)
     to map extracted values back to the original document.
+
+    Uses a parse-once indexing strategy: each document's HTML is parsed into a
+    search index exactly once, and all extracted fields are matched against that
+    index. This eliminates the O(fields × parse_cost) bottleneck.
 
     Attributes:
         name (str): Component name.
@@ -138,7 +161,10 @@ class AXEPostprocessor(BasePostprocessor):
         # Leave one core free for system stability
         n_workers = max(1, (os.cpu_count() or 2) - 1)
 
-        executor_cls = ProcessPoolExecutor if self._exact_extraction else ThreadPoolExecutor
+        # Use ThreadPoolExecutor to avoid expensive pickling of large HTML strings.
+        # The CPU-bound work (SequenceMatcher) partially releases the GIL, and
+        # the index-based approach makes each worker much faster than before.
+        executor_cls = ThreadPoolExecutor
 
         # Prepare flags generator
         extract_flags = [self._exact_extraction] * n_items

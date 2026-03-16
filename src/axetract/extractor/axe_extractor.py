@@ -1,5 +1,8 @@
+import json
 import logging
 from typing import List
+
+from pydantic import BaseModel
 
 from axetract.data_types import AXESample, Status
 from axetract.extractor.base_extractor import BaseExtractor
@@ -55,14 +58,9 @@ class AXEExtractor(BaseExtractor):
 
             # Convert Query/Schema to appropriate string if it is a dictionary or Pydantic model
             if query is not None and not isinstance(query, str):
-                import json
-
                 if isinstance(query, dict):
                     query = json.dumps(query)
-                else:
-                    from pydantic import BaseModel
-
-                    if isinstance(query, type) and issubclass(query, BaseModel):
+                elif isinstance(query, type) and issubclass(query, BaseModel):
                         # For Pydantic V2 use model_json_schema, for V1 use schema_json
                         if hasattr(query, "model_json_schema"):
                             query = json.dumps(query.model_json_schema())
@@ -126,7 +124,7 @@ class AXEExtractor(BaseExtractor):
 
         for sample, response in zip(samples, final_responses):
             sample.prediction = response
-            sample.status = Status.SUCCESS
+            sample.status = Status.SUCCESS if response is not None else Status.FAILED
             logger.debug("  [Extractor] sample %s final prediction: %s", sample.id, response)
         return samples
 

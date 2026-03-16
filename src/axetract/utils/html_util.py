@@ -432,7 +432,7 @@ def fetch_content(url: str, timeout=15) -> str:
 
 def clean_html(
     html_content: str,
-    extra_remove_tags=["header", "footer"],
+    extra_remove_tags=None,
     strip_attrs: bool = True,
     strip_links: bool = True,
     keep_tags: bool = True,
@@ -723,6 +723,83 @@ def find_closest_html_node(html_text, search_text):
         "xpath": get_xpath(best_containing_element),
         "sub_index": best_containing_sub_index,
         "score": best_containing_score,
+        "found": True,
+    }
+
+
+def build_html_search_index(html_text):
+    """Parse HTML once and build a reusable search index.
+
+    Use with match_against_index() to avoid re-parsing the HTML document
+    for every field during postprocessing. For a result with N fields,
+    this turns N full parses into 1 parse + N fast index lookups.
+
+    Args:
+        html_text (str): Raw HTML document.
+
+    Returns:
+        list[dict]: Index entries with 'element', 'chunk', 'norm_chunk',
+                    'norm_tokens' (set), and 'sub_index'.
+    """
+    if not html_text or not html_text.strip():
+        return []
+    soup = BeautifulSoup(html_text, "html.parser")
+    index = []
+    for element in soup.find_all(True):
+        for idx, chunk in enumerate(get_text_chunks(element)):
+            if not chunk or not chunk.strip():
+                continue
+            norm = normalize_text(chunk)
+            index.append({
+                "element": element,
+                "chunk": chunk.strip(),
+                "norm_chunk": norm,
+                "norm_tokens": set(norm.split()),
+                "sub_index": idx,
+            })
+    return index
+
+
+def match_against_index(search_text, index):
+    """Match a search text against a pre-built HTML search index.
+
+    Semantically identical to find_closest_html_node() but operates on a
+    pre-built index instead of re-parsing the HTML each time.
+
+    Args:
+        search_text (str): The text to search for.
+        index (list[dict]): Pre-built index from build_html_search_index().
+
+    Returns:
+        dict: Best match with 'text', 'xpath', 'sub_index', 'score', 'found'.
+    """
+    norm_search = normalize_text(search_text)
+    if not norm_search:
+        return {"text": search_text, "xpath": None, "sub_index": None, "score": 0.0, "found": False}
+
+    norm_search_tokens = set(norm_search.split())
+
+    best_score = 0.0
+    best_subset = 0
+    best_entry = None
+
+    for entry in index:
+        intersection_tokens = len(norm_search_tokens & entry["norm_tokens"])
+        if (norm_search in entry["norm_chunk"]) or intersection_tokens:
+            score = SequenceMatcher(None, entry["chunk"], search_text.strip()).ratio()
+            if score >= best_score and intersection_tokens >= best_subset:
+                best_score = score
+                best_subset = intersection_tokens
+                best_entry = entry
+
+    if best_entry is None:
+        return {"text": search_text, "xpath": None, "sub_index": None, "score": 0.0, "found": False}
+
+    return {
+        "text": best_entry["chunk"],
+        "xpath": get_xpath(best_entry["element"]),
+        "sub_index": best_entry["sub_index"],
+        "score": best_score,
         "found": True,
     }
 

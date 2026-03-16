@@ -196,10 +196,11 @@ class AXEPruner(BasePruner):
         self.batch_size = batch_size
         self.num_workers = num_workers
 
-        self.html_processor = SmartHTMLProcessor()
-
     def _filter(self, batch: List[AXESample]) -> List[AXESample]:
         """Identify and filter relevant HTML chunks from a batch of samples.
+
+        Optimized flow: reuses a single thread pool for both HTML parsing
+        and merging phases, and uses a pre-compiled regex for response parsing.
 
         Args:
             batch (List[AXESample]): Input samples with chunks populated.
@@ -214,12 +215,10 @@ class AXEPruner(BasePruner):
         logger.debug("[Pruner] Starting _filter on %d samples.", len(batch))
 
         # Prepare arguments: (content, query, template_string)
-        # Note: We pass the template STRING, not self or config.
         template_str = self.llm_pruner_prompt
         worker_args = []
         for sample in batch:
             for chunk in sample.chunks:
-                # what query is it getting ? TODO: if it doesn't work handle it well
                 worker_args.append((chunk.content, sample.query or sample.schema_model, template_str))
 
         max_workers = getattr(self, "num_workers", None) or min(32, (os.cpu_count() or 1) * 4)
@@ -227,75 +226,78 @@ class AXEPruner(BasePruner):
         logger.debug("[Pruner] Preparing %d chunk(s) across %d sample(s) with %d worker(s).",
                     total_chunks, len(batch), max_workers)
 
-        # 2. Parallel CPU Execution (HTML Parsing + Prompt Gen)
+        # Use a single thread pool for both CPU-heavy phases
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Phase 1: Parallel CPU — HTML Parsing + Prompt Generation
             results = list(executor.map(_worker_filter_prep, worker_args))
-        logger.debug("[Pruner] HTML parsing + prompt generation complete for %d chunk(s).", total_chunks)
+            logger.debug("[Pruner] HTML parsing + prompt generation complete for %d chunk(s).", total_chunks)
 
-        # Unpack results: results is list of (chunk_xpaths, prompt)
-        all_rows_xpaths, prompts = zip(*results)
-        all_rows_xpaths = list(all_rows_xpaths)
-        prompts = list(prompts)
+            # Unpack results: results is list of (chunk_xpaths, prompt)
+            all_rows_xpaths, prompts = zip(*results) if results else ([], [])
+            all_rows_xpaths = list(all_rows_xpaths)
+            prompts = list(prompts)
 
-        # 3. Batch GPU Inference (Fast)
-        logger.debug("[Pruner] Sending %d prompt(s) to LLM (adapter=pruner).", len(prompts))
-        llm_results = self.llm_pruner_client.call_batch(prompts, adapter_name="pruner")
-        #TODO: check the pruner response
-        logger.debug("[Pruner] Raw LLM responses: %s", llm_results)
-        # 4. Process Results (Light CPU work)
-        final_pruned_contents = []  # List of list of xpaths pairs
+            # Phase 2: GPU Inference
+            logger.debug("[Pruner] Sending %d prompt(s) to LLM (adapter=pruner).", len(prompts))
+            llm_results = self.llm_pruner_client.call_batch(prompts, adapter_name="pruner")
+            logger.debug("[Pruner] Raw LLM responses: %s", llm_results)
 
-        for i, (response, row_xpaths) in enumerate(zip(llm_results, all_rows_xpaths)):
-            if not response:
-                logger.warning("[Pruner] Empty LLM response for chunk %d — keeping full chunk.", i)
-                final_pruned_contents.append(row_xpaths)
-                continue
+            # Phase 3: Parse LLM Responses (light CPU work)
+            # Pre-compiled regex for index list extraction
+            _INDEX_LIST_RE = re.compile(r"\[(.*?)\]", re.DOTALL)
+            final_pruned_contents = []
 
-            match = re.search(r"\[(.*?)\]", response, re.DOTALL)
-            chosen = []
-            if match:
-                inside = "[" + match.group(1).strip() + "]"
-                try:
-                    chosen = ast.literal_eval(inside)
-                except Exception:
-                    logger.warning("[Pruner] Failed to parse index list for chunk %d: %r", i, inside)
-                    chosen = []
-            else:
-                logger.warning("[Pruner] No index list found in LLM response for chunk %d.", i)
+            for i, (response, row_xpaths) in enumerate(zip(llm_results, all_rows_xpaths)):
+                if not response:
+                    logger.warning("[Pruner] Empty LLM response for chunk %d — keeping full chunk.", i)
+                    final_pruned_contents.append(row_xpaths)
+                    continue
 
-            row_final_list = []
-            for idx in chosen:
-                if isinstance(idx, int) and 0 <= idx < len(row_xpaths):
-                    row_final_list.append(row_xpaths[idx])
+                match = _INDEX_LIST_RE.search(response)
+                chosen = []
+                if match:
+                    inside = "[" + match.group(1).strip() + "]"
+                    try:
+                        chosen = ast.literal_eval(inside)
+                    except Exception:
+                        logger.warning("[Pruner] Failed to parse index list for chunk %d: %r", i, inside)
+                        chosen = []
+                else:
+                    logger.warning("[Pruner] No index list found in LLM response for chunk %d.", i)
 
-            logger.debug("[Pruner] Chunk %d: kept %d/%d xpath node(s).",
-                         i, len(row_final_list), len(row_xpaths))
-            final_pruned_contents.append(row_final_list)
+                row_final_list = [
+                    row_xpaths[idx] for idx in chosen
+                    if isinstance(idx, int) and 0 <= idx < len(row_xpaths)
+                ]
 
-        # 5. Reconstruct Samples
-        sample_to_pruned_mini_chunks = {}
-        chunk_idx = 0
-        for i, sample in enumerate(batch):
-            sample_xpath_list = []
-            for chunk in sample.chunks:
-                chunk_id = chunk.chunkid
-                sample_id = chunk_id.split("-")[0]
-                pruned_chunk = final_pruned_contents[chunk_idx]
-                sample_xpath_list.append(pruned_chunk)
-                chunk_idx += 1
-            sample_to_pruned_mini_chunks[sample_id] = sample_xpath_list
-        logger.debug("[Pruner] Sample → pruned mini-chunks map: %s", sample_to_pruned_mini_chunks)
-        # 6. Merge HTML
-        merge_worker_args = []
-        for key, value in sample_to_pruned_mini_chunks.items():
-            sample = batch[int(key)]
-            merge_worker_args.append((value, sample.content))
+                logger.debug("[Pruner] Chunk %d: kept %d/%d xpath node(s).",
+                             i, len(row_final_list), len(row_xpaths))
+                final_pruned_contents.append(row_final_list)
 
-        logger.debug("[Pruner] Merging HTML for %d sample(s).", len(merge_worker_args))
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Phase 4: Reconstruct Samples
+            sample_to_pruned_mini_chunks = {}
+            chunk_idx = 0
+            for i, sample in enumerate(batch):
+                sample_xpath_list = []
+                for chunk in sample.chunks:
+                    chunk_id = chunk.chunkid
+                    sample_id = chunk_id.split("-")[0]
+                    pruned_chunk = final_pruned_contents[chunk_idx]
+                    sample_xpath_list.append(pruned_chunk)
+                    chunk_idx += 1
+                sample_to_pruned_mini_chunks[sample_id] = sample_xpath_list
+            logger.debug("[Pruner] Sample → pruned mini-chunks map: %s", sample_to_pruned_mini_chunks)
+
+            # Phase 5: Parallel CPU — Merge HTML (reuse pool)
+            merge_worker_args = []
+            for key, value in sample_to_pruned_mini_chunks.items():
+                sample = batch[int(key)]
+                merge_worker_args.append((value, sample.content))
+
+            logger.debug("[Pruner] Merging HTML for %d sample(s).", len(merge_worker_args))
             new_full_content = list(executor.map(_worker_merge_html, merge_worker_args))
 
-        # 7. Update Samples
+        # Phase 6: Update Samples
         for i, sample in enumerate(batch):
             before = len(sample.content) if sample.content else 0
             after = len(new_full_content[i]) if new_full_content[i] else 0

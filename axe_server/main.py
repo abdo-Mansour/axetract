@@ -2,6 +2,8 @@ import logging
 import os
 import sys
 from dotenv import load_dotenv
+# 1. Load env file
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 # Add src to path before any axetract imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -12,8 +14,6 @@ setup_logging(
     log_file=os.path.join(os.path.dirname(__file__), "axe_server.log"),
 )
 
-# 1. Load env file
-load_dotenv()
 
 # 2. FORCE V1 OFF (Must be done before axetract/vllm imports)
 os.environ["VLLM_USE_V1"] = "0"
@@ -121,7 +121,7 @@ def main():
     """Run the server using uvicorn."""
     port = int(os.getenv("AXE_PORT", 8000))
     host = os.getenv("AXE_HOST", "0.0.0.0")
-    uvicorn.run(app, host=host, port=port)
+    uvicorn.run(app, host=host, port=port, log_config=None)
 
 
 if __name__ == "__main__":

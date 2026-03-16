@@ -78,7 +78,7 @@ class AXEPreprocessor(BasePreprocessor):
         name: str = "AXEPreprocessor",
         fetch_workers: int = mp.cpu_count(),
         cpu_workers: int = mp.cpu_count(),
-        extra_remove_tags: List[str] | None = ["header", "footer"],
+        extra_remove_tags: List[str] | None = None,
         strip_attrs: bool = True,
         strip_links: bool = True,
         keep_tags: bool = True,
@@ -108,7 +108,7 @@ class AXEPreprocessor(BasePreprocessor):
         self.fetch_workers = fetch_workers
         self.cpu_workers = cpu_workers
 
-        self.extra_remove_tags = extra_remove_tags
+        self.extra_remove_tags = extra_remove_tags if extra_remove_tags is not None else ["header", "footer"]
         self.strip_attrs = strip_attrs
         self.strip_links = strip_links
         self.keep_tags = keep_tags

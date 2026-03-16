@@ -5,60 +5,52 @@ from unittest.mock import MagicMock, patch
 from axetract.data_types import AXESample, Status
 from axetract.postprocessor.axe_postprocessor import (
     AXEPostprocessor,
-    _recursive_exact_extract,
+    _recursive_exact_extract_indexed,
     _safe_extract_worker,
 )
+from axetract.utils.html_util import build_html_search_index
 
 # ===========================================================================
-# _recursive_exact_extract
+# _recursive_exact_extract_indexed
 # ===========================================================================
 
 
-class TestRecursiveExactExtract:
-    @patch("axetract.postprocessor.axe_postprocessor.find_closest_html_node")
-    def test_scalar_str_calls_find_closest(self, mock_find):
-        mock_find.return_value = {"text": "matched", "xpath": "/html/body/p"}
-        val, xp = _recursive_exact_extract("hello", "<p>hello</p>")
+class TestRecursiveExactExtractIndexed:
+    def test_scalar_str_matches_against_index(self):
+        html = "<p>matched</p>"
+        index = build_html_search_index(html)
+        val, xp = _recursive_exact_extract_indexed("matched", index)
         assert val == "matched"
-        assert xp == "/html/body/p"
+        assert xp is not None
 
     def test_none_returns_none_none(self):
-        val, xp = _recursive_exact_extract(None, "<p>any</p>")
+        index = build_html_search_index("<p>any</p>")
+        val, xp = _recursive_exact_extract_indexed(None, index)
         assert val is None
         assert xp is None
 
-    @patch("axetract.postprocessor.axe_postprocessor.find_closest_html_node")
-    def test_dict_recurses_on_values(self, mock_find):
-        mock_find.return_value = {"text": "found", "xpath": "/p"}
+    def test_dict_recurses_on_values(self):
+        html = "<p>$10</p><span>1kg</span>"
+        index = build_html_search_index(html)
         data = {"price": "$10", "weight": "1kg"}
-        val, xp = _recursive_exact_extract(data, "<p>$10</p><span>1kg</span>")
+        val, xp = _recursive_exact_extract_indexed(data, index)
         assert isinstance(val, dict)
         assert "price" in val
         assert "weight" in val
         assert isinstance(xp, dict)
 
-    @patch("axetract.postprocessor.axe_postprocessor.find_closest_html_node")
-    def test_list_recurses_on_items(self, mock_find):
-        mock_find.return_value = {"text": "item", "xpath": "/li"}
+    def test_list_recurses_on_items(self):
+        html = "<ul><li>item1</li><li>item2</li></ul>"
+        index = build_html_search_index(html)
         data = ["item1", "item2"]
-        vals, xpaths = _recursive_exact_extract(data, "<ul><li>item1</li><li>item2</li></ul>")
+        vals, xpaths = _recursive_exact_extract_indexed(data, index)
         assert isinstance(vals, list)
         assert len(vals) == 2
         assert isinstance(xpaths, list)
 
-    @patch("axetract.postprocessor.axe_postprocessor.find_closest_html_node")
-    def test_find_closest_none_result(self, mock_find):
-        # When find_closest_html_node returns None
-        mock_find.return_value = None
-        val, xp = _recursive_exact_extract("something", "<p>content</p>")
-        assert val is None
-        assert xp is None
-
-    @patch("axetract.postprocessor.axe_postprocessor.find_closest_html_node")
-    def test_find_closest_missing_fields(self, mock_find):
-        # Returns dict without 'text' or 'xpath'
-        mock_find.return_value = {}
-        val, xp = _recursive_exact_extract("something", "<p>content</p>")
+    def test_empty_index_returns_none(self):
+        index = []
+        val, xp = _recursive_exact_extract_indexed("something", index)
         assert val is None
         assert xp is None
 
@@ -98,14 +90,14 @@ class TestSafeExtractWorker:
         # QA → spread_values=True → string
         assert isinstance(result, str)
 
-    def test_extract_exact_true_calls_recursive(self):
+    def test_extract_exact_true_builds_index_and_matches(self):
         response = '{"price": "$10"}'
         html = "<html><body><p>$10</p></body></html>"
-        with patch("axetract.postprocessor.axe_postprocessor._recursive_exact_extract") as mock_rec:
-            mock_rec.return_value = ({"price": "$10"}, {"price": "/html/body/p"})
-            result, xpaths = _safe_extract_worker(response, html, '{"price":"str"}', True)
-            mock_rec.assert_called_once()
-            assert xpaths == {"price": "/html/body/p"}
+        result, xpaths = _safe_extract_worker(response, html, '{"price":"str"}', True)
+        assert isinstance(result, dict)
+        # Should have matched the $10 text
+        assert result.get("price") is not None
+        assert xpaths is not None
 
     def test_extract_exact_true_no_content_returns_error(self):
         response = '{"price": "$10"}'
@@ -191,24 +183,15 @@ class TestAXEPostprocessor:
         results = pp([sample])
         assert len(results) == 1
 
-    @patch("axetract.postprocessor.axe_postprocessor.ProcessPoolExecutor")
-    def test_uses_process_pool_for_exact_extraction(self, mock_exec):
-        mock_ctx = MagicMock()
-        mock_ctx.__enter__ = MagicMock(return_value=mock_ctx)
-        mock_ctx.__exit__ = MagicMock(return_value=False)
-        mock_ctx.map.return_value = iter([('{"price":"$5"}', None)])
-        mock_exec.return_value = mock_ctx
-
+    def test_exact_extraction_uses_thread_pool(self):
+        """Verify exact extraction runs without errors using ThreadPoolExecutor."""
         pp = AXEPostprocessor(exact_extraction=True)
         sample = self._make_sample(
             prediction='{"price": "$5"}',
             query='{"price": "string"}',
             current_html="<p>$5</p>",
         )
-        # Just ensure it runs without raising
-        with patch(
-            "axetract.postprocessor.axe_postprocessor._safe_extract_worker",
-            return_value=({"price": "$5"}, None),
-        ):
-            results = pp([sample])
+        results = pp([sample])
         assert len(results) == 1
+        # Verify the prediction was processed (should be a dict or have matched values)
+        assert results[0].prediction is not None

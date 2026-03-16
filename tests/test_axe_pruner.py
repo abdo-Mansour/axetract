@@ -214,7 +214,7 @@ class TestAXEPruner:
         assert result == []
         mock_llm.call_batch.assert_not_called()
 
-    @patch("axetract.pruner.axe_pruner.ProcessPoolExecutor")
+    @patch("axetract.pruner.axe_pruner.ThreadPoolExecutor")
     def test_filter_updates_current_html(self, mock_executor):
         mock_llm = MagicMock()
         mock_llm.call_batch.return_value = ["[0]"]
@@ -234,7 +234,7 @@ class TestAXEPruner:
         assert results[0].current_html == "<html>Merged</html>"
         mock_llm.call_batch.assert_called_once()
 
-    @patch("axetract.pruner.axe_pruner.ProcessPoolExecutor")
+    @patch("axetract.pruner.axe_pruner.ThreadPoolExecutor")
     def test_empty_llm_response_keeps_all_chunks(self, mock_executor):
         """When LLM returns empty string, all xpaths are preserved."""
         mock_llm = MagicMock()

@@ -7,22 +7,9 @@ from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from axetract.llm.base_client import BaseClient
+from axetract.llm.llm_utils import format_prompt_with_thinking
 
 logger = logging.getLogger(__name__)
-
-# 3. Hugging Face Transformers & PEFT
-try:
-    HF_AVAILABLE = True
-except ImportError:
-    HF_AVAILABLE = False
-
-
-def format_prompt_with_thinking(prompt: str, enable_thinking: bool, call_thinking: bool) -> str:
-    """Helper to format prompts for models requiring specific thinking tags."""
-    if enable_thinking or call_thinking:
-        return f"{prompt}<|im_end|>\n<|im_start|>assistant\n"
-    else:
-        return f"{prompt}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
 
 
 class HuggingFaceClient(BaseClient):
@@ -31,6 +18,13 @@ class HuggingFaceClient(BaseClient):
     Supports native tensor batching and on-the-fly PEFT LoRA switching.
     Optimized for maximum throughput with Flash Attention 2, torch.compile,
     and static KV cache when available.
+
+    Performance optimizations in call_batch:
+    - Phase 1: All tokenization happens OUTSIDE the GPU lock (CPU work)
+    - Phase 2: Dynamic batching by token length OUTSIDE the lock
+    - Phase 3: Tensor padding/construction OUTSIDE the lock
+    - Phase 4: Only adapter switch + model.generate inside the lock
+    - Phase 5: Token decoding OUTSIDE the lock
     """
 
     def __init__(self, config: dict):
@@ -127,14 +121,22 @@ class HuggingFaceClient(BaseClient):
         gen_conf = config.get("generation_config", {})
         self.temperature = gen_conf.get("temperature", 0.0)
         self.top_p = gen_conf.get("top_p", 1.0)
-        self.max_tokens = gen_conf.get("max_tokens", 512)
+        # Support max_tokens at top level or in generation_config
+        self.max_tokens = config.get("max_tokens", gen_conf.get("max_tokens", 512))
         self.enable_thinking = config.get("enable_thinking", False)
+
+        # Read max_model_len from engine_args or use a safe fallback
+        engine_args = config.get("engine_args", {})
+        self.max_model_len = engine_args.get("max_model_len", 8192)
 
     def _get_generation_config(self, adapter_name: Optional[str] = None, **kwargs) -> dict:
         params = {
             "temperature": self.temperature,
             "top_p": self.top_p,
             "max_new_tokens": self.max_tokens,
+            # Explicitly enable KV-cache: without this, every decode step
+            # recomputes the full attention matrix instead of appending to cache.
+            "use_cache": True,
         }
         if adapter_name and adapter_name in self.adapter_defaults:
             params.update(self.adapter_defaults[adapter_name])
@@ -161,9 +163,18 @@ class HuggingFaceClient(BaseClient):
         thinking: bool = False,
         **kwargs,
     ) -> List[Optional[str]]:
-        """Overrides default threaded batching with proper tensor-level Hugging Face batching.
+        """Optimized batch generation with minimal GPU lock scope.
 
-        Uses `chunk_size` to prevent GPU Out-Of-Memory errors.
+        All CPU work (tokenization, sorting, padding, decoding) happens
+        OUTSIDE the GPU lock. Only adapter switching and model.generate()
+        are protected, maximizing GPU utilization in concurrent pipelines.
+
+        Architecture:
+          Phase 1 (CPU, unlocked): Pre-tokenize all prompts (single pass)
+          Phase 2 (CPU, unlocked): Dynamic batching by token length
+          Phase 3 (CPU, unlocked): Pad and build tensors per chunk
+          Phase 4 (GPU, LOCKED):   Adapter switch + generate for each chunk
+          Phase 5 (CPU, unlocked): Decode generated tokens
 
         Args:
             prompts (Iterable[str]): Batch of prompts.
@@ -177,46 +188,115 @@ class HuggingFaceClient(BaseClient):
         """
         prompts = [format_prompt_with_thinking(p, self.enable_thinking, thinking) for p in prompts]
         gen_kwargs = self._get_generation_config(adapter_name=adapter_name, **kwargs)
-        all_results = []
+
+        if not prompts:
+            return []
+
+        # ═══════════════════════════════════════════════════════════════
+        # Phase 1: Pre-tokenize ALL prompts OUTSIDE the lock (CPU)
+        # Single-pass tokenization — no double encode for lengths.
+        # ═══════════════════════════════════════════════════════════════
+        pre_tokenized = self.tokenizer(
+            prompts,
+            padding=False,
+            truncation=True,
+            max_length=self.max_model_len,
+            return_attention_mask=False,
+        )
+        token_ids_list = pre_tokenized["input_ids"]
+        token_lengths = [len(ids) for ids in token_ids_list]
+
+        # ═══════════════════════════════════════════════════════════════
+        # Phase 2: Dynamic batching by token length OUTSIDE the lock
+        # Groups similar-length sequences to minimize padding waste.
+        # ═══════════════════════════════════════════════════════════════
+        sorted_indices = sorted(range(len(prompts)), key=lambda i: token_lengths[i])
+
+        batches = []
+        current_batch = []
+        max_len_in_batch = 0
+
+        for idx in sorted_indices:
+            tlen = token_lengths[idx]
+            if not current_batch:
+                current_batch.append(idx)
+                max_len_in_batch = tlen
+            elif len(current_batch) >= chunk_size or tlen > max_len_in_batch * 1.3 + 50:
+                batches.append(current_batch)
+                current_batch = [idx]
+                max_len_in_batch = tlen
+            else:
+                current_batch.append(idx)
+                max_len_in_batch = max(max_len_in_batch, tlen)
+
+        if current_batch:
+            batches.append(current_batch)
+
+        # ═══════════════════════════════════════════════════════════════
+        # Phase 3: Pad each chunk into tensors OUTSIDE the lock (CPU)
+        # Left-padding for causal LM generation.
+        # ═══════════════════════════════════════════════════════════════
+        pad_id = self.tokenizer.pad_token_id
+        prepared_batches = []
+
+        for batch_indices in batches:
+            batch_ids = [token_ids_list[i] for i in batch_indices]
+            max_len = max(len(ids) for ids in batch_ids)
+
+            padded_input_ids = []
+            attention_masks = []
+            for ids in batch_ids:
+                pad_len = max_len - len(ids)
+                padded_input_ids.append([pad_id] * pad_len + ids)
+                attention_masks.append([0] * pad_len + [1] * len(ids))
+
+            prepared_batches.append({
+                "input_ids": torch.tensor(padded_input_ids, dtype=torch.long),
+                "attention_mask": torch.tensor(attention_masks, dtype=torch.long),
+            })
+
+        # ═══════════════════════════════════════════════════════════════
+        # Phase 4: GPU inference INSIDE the lock (minimal critical section)
+        # Only adapter switch + model.generate are protected.
+        # ═══════════════════════════════════════════════════════════════
+        raw_generated = {}  # orig_idx -> list of token ids (on CPU)
+        context_mgr = None
 
         with self._generate_lock:
-            # 1. Switch Adapter
+            # Switch adapter
             if adapter_name and hasattr(self.model, "set_adapter"):
                 self.model.set_adapter(adapter_name)
             elif hasattr(self.model, "set_adapter"):
-                # Disable PEFT if falling back to base model
                 context_mgr = self.model.disable_adapter()
                 context_mgr.__enter__()
 
             try:
-                # 2. Process in manageable chunks to avoid OOM
-                for i in range(0, len(prompts), chunk_size):
-                    chunk = prompts[i : i + chunk_size]
-
-                    inputs = self.tokenizer(
-                        chunk, return_tensors="pt", padding=True, truncation=True
-                    )
-                    inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
+                for batch_indices, tensors in zip(batches, prepared_batches):
+                    inputs = {k: v.to(self.model.device) for k, v in tensors.items()}
 
                     with torch.no_grad():
                         outputs = self.model.generate(**inputs, **gen_kwargs)
 
-                    # 3. Slice the output to exclude the prompt tokens
+                    # Slice off prompt tokens and move to CPU immediately
                     input_length = inputs["input_ids"].shape[1]
-                    generated_tokens = outputs[:, input_length:]
+                    generated_tokens = outputs[:, input_length:].cpu()
 
-                    decoded = self.tokenizer.batch_decode(
-                        generated_tokens, skip_special_tokens=True
-                    )
-                    all_results.extend(decoded)
+                    for i, orig_idx in enumerate(batch_indices):
+                        raw_generated[orig_idx] = generated_tokens[i].tolist()
+
             finally:
-                # Cleanup context manager if we disabled adapters
-                if not adapter_name and hasattr(self.model, "set_adapter"):
-                    # This check is a bit redundant but safe
+                if context_mgr is not None:
                     try:
                         context_mgr.__exit__(None, None, None)
-                    except NameError:
+                    except Exception:
                         pass
+
+        # ═══════════════════════════════════════════════════════════════
+        # Phase 5: Decode OUTSIDE the lock (CPU work)
+        # Frees the GPU lock for other threads/pipeline stages sooner.
+        # ═══════════════════════════════════════════════════════════════
+        ordered_tokens = [raw_generated[i] for i in range(len(prompts))]
+        all_results = self.tokenizer.batch_decode(ordered_tokens, skip_special_tokens=True)
 
         return all_results
 

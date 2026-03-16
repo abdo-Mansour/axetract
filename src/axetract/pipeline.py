@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import gc
 import logging
+import os
+import queue
+import threading
 import uuid
 from typing import Any, Dict, List, Optional, Type, Union
 
@@ -14,6 +18,9 @@ from axetract.postprocessor.base_postprocessor import BasePostprocessor
 from axetract.preprocessor.base_preprocessor import BasePreprocessor
 from axetract.pruner.base_pruner import BasePruner
 
+# Sentinel value to signal stage completion
+_SENTINEL = object()
+
 
 class AXEPipeline:
     """The main orchestrator for the Axetract data extraction process.
@@ -24,11 +31,18 @@ class AXEPipeline:
     3. **Extraction**: Using a LoRA-powered LLM to map HTML content to structured JSON.
     4. **Postprocessing**: Validating schema and performing final cleanup.
 
+    For large batches, the pipeline automatically uses micro-batch pipelining
+    to overlap CPU and GPU work across stages. While the GPU runs pruner
+    inference on micro-batch N, the CPU can preprocess micro-batch N+1 and
+    postprocess micro-batch N-1 concurrently.
+
     Attributes:
         preprocessor (BasePreprocessor): Component for initial HTML handling.
         pruner (BasePruner): Component for relevance filtering.
         extractor (BaseExtractor): Component for structured data generation.
         postprocessor (BasePostprocessor): Component for results refinement.
+        micro_batch_size (int): Number of samples per micro-batch for pipelined
+            execution. Smaller values improve overlap but add thread overhead.
     """
 
     def __init__(
@@ -37,6 +51,7 @@ class AXEPipeline:
         pruner: BasePruner,
         extractor: BaseExtractor,
         postprocessor: BasePostprocessor,
+        micro_batch_size: int = 4,
     ):
         """Initialize the pipeline with its core components.
 
@@ -45,11 +60,31 @@ class AXEPipeline:
             pruner (BasePruner): Component for relevance pruning.
             extractor (BaseExtractor): Component for structured extraction.
             postprocessor (BasePostprocessor): Component for JSON repair and grounding.
+            micro_batch_size (int): Micro-batch size for pipelined execution.
+                Controls the granularity of CPU/GPU overlap. Default 4.
         """
         self.preprocessor = preprocessor
         self.pruner = pruner
         self.extractor = extractor
         self.postprocessor = postprocessor
+        self.micro_batch_size = micro_batch_size
+
+    @staticmethod
+    def _free_gpu_cache():
+        """Reclaim GPU memory between stages.
+
+        Triggers Python's garbage collector to finalize dead tensor references,
+        then returns freed memory blocks to the CUDA allocator. No-op if CUDA
+        is not available.
+        """
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                gc.collect()
+                torch.cuda.empty_cache()
+        except ImportError:
+            pass
 
     @classmethod
     def from_config(
@@ -113,7 +148,7 @@ class AXEPipeline:
 
             lc = HuggingFaceClient(config=llm_config)
 
-        preprocessor = AXEPreprocessor(use_clean_chunker=True,chunk_size=1000)
+        preprocessor = AXEPreprocessor(use_clean_chunker=True, chunk_size=1000)
         pruner = AXEPruner(llm_pruner_client=lc, llm_pruner_prompt=PRUNER_PROMPT)
         extractor = AXEExtractor(
             llm_extractor_client=lc,
@@ -185,24 +220,20 @@ class AXEPipeline:
         ]
         return self.process_batch(batch)
 
-    def process_batch(self, batch: List[Union[AXESample, Dict[str, Any]]]) -> List[AXEResult]:
-        """Main execution flow of the pipeline.
-
-        Accepts a list of AXESample objects OR a list of dictionaries.
-        Coordinates the component flow: Preprocessor -> Pruner -> Extractor -> Postprocessor.
+    def _format_batch(self, batch: List[Union[AXESample, Dict[str, Any]]]) -> List[AXESample]:
+        """Convert dicts to AXESamples if necessary.
 
         Args:
-            batch (List[Union[AXESample, Dict[str, Any]]]): Batch of extraction tasks.
+            batch: Raw batch of samples or dicts.
 
         Returns:
-            List[AXEResult]: Final processed results.
+            List of AXESample objects.
         """
-        # 0. Convert Dicts to AXESamples if necessary
-        formatted_batch = []
+        formatted = []
         for item in batch:
             if isinstance(item, dict):
                 input_data = item.get("input_data", "")
-                formatted_batch.append(
+                formatted.append(
                     AXESample(
                         id=str(item.get("id", uuid.uuid4())),
                         content=input_data,
@@ -212,46 +243,19 @@ class AXEPipeline:
                     )
                 )
             else:
-                formatted_batch.append(item)
+                formatted.append(item)
+        return formatted
 
-        batch = formatted_batch
-        logger.debug("Starting pipeline processing for batch of size %d", len(batch))
+    def _to_results(self, samples: List[AXESample]) -> List[AXEResult]:
+        """Convert processed samples to AXEResult objects.
 
-        # 1. Preprocess (Fetch & Chunk)
-        logger.debug("Step 1: Running preprocessor...")
-        batch = self.preprocessor(batch)
-        for i, sample in enumerate(batch):
-            chunks = sample.chunks or []
-            chunk_summary = [(c.chunkid, len(c.content)) for c in chunks]
-            logger.debug("  -> Sample %d after preprocessor: %d chunk(s) -> %s",
-                        i, len(chunks), chunk_summary)
+        Args:
+            samples: Processed AXESample list.
 
-        # 2. Prune (Optional step to reduce tokens)
-        if self.pruner:
-            logger.debug("Step 2: Running pruner...")
-            batch = self.pruner(batch)
-            for i, sample in enumerate(batch):
-                xpaths = sample.xpaths or []
-                logger.debug("  -> Sample %d after pruner: %d xpath(s) -> %s",
-                            i, len(xpaths), xpaths)
-
-        # 3. Extract (The core extraction logic)
-        logger.debug("Step 3: Running extractor...")
-        batch = self.extractor(batch)
-        for i, sample in enumerate(batch):
-            logger.debug("  -> Sample %d after extractor: %s", i, sample.prediction)
-
-        # 4. Postprocess (Optional cleanup)
-        if self.postprocessor:
-            logger.debug("Step 4: Running postprocessor...")
-            batch = self.postprocessor(batch)
-            for i, sample in enumerate(batch):
-                logger.debug("  -> Sample %d after postprocessor: %s", i, sample.prediction)
-
-        logger.debug("Pipeline processing completed successfully.")
-
-        # 5. Convert to Results
-        results = [
+        Returns:
+            List of AXEResult objects.
+        """
+        return [
             AXEResult(
                 id=str(sample.id),
                 prediction=sample.prediction or {},
@@ -261,7 +265,222 @@ class AXEPipeline:
                 if sample.status == Status.SUCCESS
                 else f"Encountered error/pending status: {sample.status}",
             )
-            for sample in batch
+            for sample in samples
         ]
 
-        return results
+    # ──────────────────────────────────────────────────────────────────
+    # Sequential Processing (for small batches / single items)
+    # ──────────────────────────────────────────────────────────────────
+
+    def _process_sequential(self, batch: List[AXESample]) -> List[AXESample]:
+        """Process a batch sequentially through all stages.
+
+        Used for small batches where threading overhead outweighs overlap gains.
+
+        Args:
+            batch: Formatted AXESample list.
+
+        Returns:
+            Processed AXESample list.
+        """
+        logger.debug("Sequential processing for batch of size %d", len(batch))
+
+        # 1. Preprocess (Fetch & Chunk)
+        logger.debug("Step 1: Running preprocessor...")
+        batch = self.preprocessor(batch)
+        for i, sample in enumerate(batch):
+            chunks = sample.chunks or []
+            chunk_summary = [(c.chunkid, len(c.content)) for c in chunks]
+            logger.debug(
+                "  -> Sample %d after preprocessor: %d chunk(s) -> %s",
+                i, len(chunks), chunk_summary,
+            )
+
+        # 2. Prune
+        if self.pruner:
+            logger.debug("Step 2: Running pruner...")
+            batch = self.pruner(batch)
+            for i, sample in enumerate(batch):
+                xpaths = sample.xpaths or []
+                logger.debug("  -> Sample %d after pruner: %d xpath(s) -> %s", i, len(xpaths), xpaths)
+
+        # 3. Extract
+        self._free_gpu_cache()
+        logger.debug("Step 3: Running extractor...")
+        batch = self.extractor(batch)
+        for i, sample in enumerate(batch):
+            logger.debug("  -> Sample %d after extractor: %s", i, sample.prediction)
+
+        # 4. Postprocess
+        if self.postprocessor:
+            logger.debug("Step 4: Running postprocessor...")
+            batch = self.postprocessor(batch)
+            for i, sample in enumerate(batch):
+                logger.debug("  -> Sample %d after postprocessor: %s", i, sample.prediction)
+
+        return batch
+
+    # ──────────────────────────────────────────────────────────────────
+    # Pipelined Processing (for large batches)
+    # ──────────────────────────────────────────────────────────────────
+
+    def _process_pipelined(
+        self, batch: List[AXESample], micro_batch_size: int
+    ) -> List[AXESample]:
+        """Process a batch with micro-batch pipelining for CPU/GPU overlap.
+
+        Splits the batch into micro-batches and runs pipeline stages in
+        separate threads connected by queues. This way:
+        - CPU preprocessing of micro-batch N+1 overlaps with GPU pruning of N
+        - CPU postprocessing of micro-batch N overlaps with GPU extraction of N+1
+        - The GPU is never fully idle waiting for CPU stages to complete
+
+        The GPU lock in the LLM client ensures inference safety while allowing
+        CPU-bound work in other threads to proceed concurrently.
+
+        Args:
+            batch: Formatted AXESample list.
+            micro_batch_size: Samples per micro-batch.
+
+        Returns:
+            Processed AXESample list in original order.
+        """
+        micro_batches = [
+            batch[i : i + micro_batch_size]
+            for i in range(0, len(batch), micro_batch_size)
+        ]
+        num_mbs = len(micro_batches)
+
+        logger.debug(
+            "Pipelined processing: %d samples → %d micro-batches of ≤%d",
+            len(batch), num_mbs, micro_batch_size,
+        )
+
+        # Bounded queues between stages (maxsize=2 limits memory while allowing overlap)
+        q_preprocessed = queue.Queue(maxsize=2)
+        q_pruned = queue.Queue(maxsize=2)
+        q_extracted = queue.Queue(maxsize=2)
+
+        # Results indexed by micro-batch position for ordered reassembly
+        results = [None] * num_mbs
+        errors = []
+
+        def _preprocess_stage():
+            """Stage 1: CPU-bound preprocessing (fetch, clean, chunk)."""
+            for mb_idx, mb in enumerate(micro_batches):
+                try:
+                    logger.debug("[Pipeline] Preprocessing micro-batch %d/%d", mb_idx + 1, num_mbs)
+                    processed = self.preprocessor(mb)
+                    q_preprocessed.put((mb_idx, processed))
+                except Exception as e:
+                    logger.error("[Pipeline] Preprocess error on micro-batch %d: %s", mb_idx, e)
+                    errors.append(e)
+                    q_preprocessed.put((mb_idx, mb))  # Pass through on error
+            q_preprocessed.put(_SENTINEL)
+
+        def _prune_stage():
+            """Stage 2: CPU prep → GPU inference → CPU post (pruning)."""
+            while True:
+                item = q_preprocessed.get()
+                if item is _SENTINEL:
+                    break
+                mb_idx, mb = item
+                try:
+                    if self.pruner:
+                        logger.debug("[Pipeline] Pruning micro-batch %d/%d", mb_idx + 1, num_mbs)
+                        mb = self.pruner(mb)
+                except Exception as e:
+                    logger.error("[Pipeline] Pruner error on micro-batch %d: %s", mb_idx, e)
+                    errors.append(e)
+                q_pruned.put((mb_idx, mb))
+            q_pruned.put(_SENTINEL)
+
+        def _extract_stage():
+            """Stage 3: CPU prep → GPU inference → CPU post (extraction)."""
+            while True:
+                item = q_pruned.get()
+                if item is _SENTINEL:
+                    break
+                mb_idx, mb = item
+                try:
+                    logger.debug("[Pipeline] Extracting micro-batch %d/%d", mb_idx + 1, num_mbs)
+                    mb = self.extractor(mb)
+                except Exception as e:
+                    logger.error("[Pipeline] Extractor error on micro-batch %d: %s", mb_idx, e)
+                    errors.append(e)
+                q_extracted.put((mb_idx, mb))
+            q_extracted.put(_SENTINEL)
+
+        def _postprocess_stage():
+            """Stage 4: CPU-bound postprocessing (JSON repair, XPath grounding)."""
+            while True:
+                item = q_extracted.get()
+                if item is _SENTINEL:
+                    break
+                mb_idx, mb = item
+                try:
+                    if self.postprocessor:
+                        logger.debug(
+                            "[Pipeline] Postprocessing micro-batch %d/%d", mb_idx + 1, num_mbs,
+                        )
+                        mb = self.postprocessor(mb)
+                except Exception as e:
+                    logger.error("[Pipeline] Postprocess error on micro-batch %d: %s", mb_idx, e)
+                    errors.append(e)
+                results[mb_idx] = mb
+
+        # Launch all stages as concurrent threads
+        threads = [
+            threading.Thread(target=_preprocess_stage, name="pipeline-preprocess", daemon=True),
+            threading.Thread(target=_prune_stage, name="pipeline-prune", daemon=True),
+            threading.Thread(target=_extract_stage, name="pipeline-extract", daemon=True),
+            threading.Thread(target=_postprocess_stage, name="pipeline-postprocess", daemon=True),
+        ]
+
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        if errors:
+            logger.warning("[Pipeline] %d error(s) occurred during pipelined processing.", len(errors))
+
+        # Flatten micro-batches back into a single list in original order
+        all_samples = []
+        for mb in results:
+            if mb is not None:
+                all_samples.extend(mb)
+
+        logger.debug("Pipelined processing completed: %d samples returned.", len(all_samples))
+        return all_samples
+
+    # ──────────────────────────────────────────────────────────────────
+    # Public Entry Point
+    # ──────────────────────────────────────────────────────────────────
+
+    def process_batch(self, batch: List[Union[AXESample, Dict[str, Any]]]) -> List[AXEResult]:
+        """Main execution flow of the pipeline.
+
+        Accepts a list of AXESample objects OR a list of dictionaries.
+        Automatically selects between sequential and pipelined execution:
+        - Small batches (≤ micro_batch_size): sequential (no threading overhead)
+        - Large batches (> micro_batch_size): pipelined (CPU/GPU overlap)
+
+        Args:
+            batch (List[Union[AXESample, Dict[str, Any]]]): Batch of extraction tasks.
+
+        Returns:
+            List[AXEResult]: Final processed results.
+        """
+        # 0. Convert Dicts to AXESamples if necessary
+        batch = self._format_batch(batch)
+        logger.debug("Starting pipeline processing for batch of size %d", len(batch))
+
+        # Choose execution strategy based on batch size
+        if len(batch) <= self.micro_batch_size:
+            processed = self._process_sequential(batch)
+        else:
+            processed = self._process_pipelined(batch, self.micro_batch_size)
+
+        logger.debug("Pipeline processing completed successfully.")
+        return self._to_results(processed)

@@ -2,6 +2,7 @@ import threading
 from typing import Any, Dict, Iterable, List, Optional
 
 from axetract.llm.base_client import BaseClient
+from axetract.llm.llm_utils import format_prompt_with_thinking
 
 try:
     from vllm import LLM, SamplingParams
@@ -11,17 +12,7 @@ try:
 except ImportError:
     VLLM_AVAILABLE = False
 
-
 _vllm_init_lock = threading.Lock()
-
-
-def format_prompt_with_thinking(prompt: str, enable_thinking: bool, call_thinking: bool) -> str:
-    """Helper to format prompts for models requiring specific thinking tags."""
-    if enable_thinking or call_thinking:
-        return f"{prompt}<|im_end|>\n<|im_start|>assistant\n"
-    else:
-        return f"{prompt}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
-
 
 class LocalVLLMClient(BaseClient):
     """Connects to a local vLLM engine for high-performance inference.
@@ -76,7 +67,7 @@ class LocalVLLMClient(BaseClient):
         gen_conf = config.get("generation_config", {})
         self.temperature = gen_conf.get("temperature", 0.0)
         self.top_p = gen_conf.get("top_p", 1.0)
-        self.max_tokens = gen_conf.get("max_tokens", 512)
+        self.max_tokens = config.get("max_tokens", gen_conf.get("max_tokens", 512))
         self.stop_sequences = gen_conf.get("stop", [])
         self.enable_thinking = config.get("enable_thinking", False)
 

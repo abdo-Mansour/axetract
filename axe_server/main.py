@@ -84,7 +84,7 @@ async def process(request: ProcessRequest):
     
     logger.debug("Received process request for input: %s", request.input_data[:100] + "...")
     try:
-        result = pipeline.process(
+        result = pipeline.extract(
             input_data=request.input_data, query=request.query, schema=request.schema_model
         )
         return result
@@ -111,7 +111,7 @@ async def process_batch(request: BatchProcessRequest):
             {"input_data": item.input_data, "query": item.query, "schema": item.schema_model}
             for item in request.items
         ]
-        results = pipeline.process_batch(batch)
+        results = pipeline.extract_batch(batch)
         return results
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -163,6 +163,7 @@ pipeline.extract(url, query=...)           # single
 pipeline.extract([url1, url2], query=...)  # auto-detect list → batch with same query
 pipeline.extract(batch)                    # AXESample list → heterogeneous batch
 ```
+> Good idea, let's do this
 
 ### 2.6 — The `AXESample` Public Surface is Awkward
 
@@ -172,6 +173,8 @@ pipeline.extract(batch)                    # AXESample list → heterogeneous ba
 
 - `AXEInput` — the public input model (`content`, optional `query`, optional `schema`)
 - `AXESample` — the internal mutable state object (not exported)
+
+> Ok, good idea
 
 ### 2.7 — No Streaming / Progressive Results
 
@@ -184,6 +187,7 @@ pipeline.extract(
     on_progress=lambda stage, pct: print(f"{stage}: {pct:.0%}")
 )
 ```
+> Good idea, but not a priority currently
 
 ---
 
@@ -203,6 +207,9 @@ Add a dedicated page: **`docs/user-guide/gxr.md`** with:
 - How to use XPaths with `lxml` or `selenium`
 - Its limitations (fuzzy matching, dynamic pages)
 
+> Great idea, let's do this.
+
+
 ### 3.2 — No API Reference for Key Public Classes
 
 `docs/api/pipeline.md` exists but contains only:
@@ -213,9 +220,13 @@ Add a dedicated page: **`docs/user-guide/gxr.md`** with:
 
 There is no narrative — no explanation of when to use `from_config()` vs manual construction, no parameter tables rendered in the final docs. Verify the MkDocs auto-generation actually works and produces readable output.
 
+> Ok, good idea too.
+
 ### 3.3 — `AXEChunk`, `Status`, and `AXEResult` are Undocumented from a User Perspective
 
 A user receiving a `FAILED` status has no idea what caused it, where to look, or how to retry. Document the `Status` enum values and what each failure mode implies.
+
+> Ok, but this needs more research on how we would do this, we need to understand the problem more and the different ways to solve it.
 
 ### 3.4 — The Benchmark Page is Empty
 
@@ -233,9 +244,13 @@ Add a dedicated `docs/benchmarks.md` page:
 - Hardware used (GPU, VRAM)
 - Comparison table against baseline methods from the paper
 
+> benchmarks folder is in progress and should have much work done in it, to pick the benchmarking strategy, write the code, benchmark it on a dataset, choosing a subset of the dataset and add it as part of the process to merge PRs (like tests but for speed & accuracy of the package)
+
 ### 3.5 — No Explanation of What Happens When Both `query` and `schema` Are Passed
 
 The code in `AXEExtractor._generate_output()` treats `schema_model` as the `query` if no `query` is set. But the docs never say what happens if a user passes both — does one take precedence? Which?
+
+> Good point, we need to determine what to do in this case, this is a valid issue
 
 ### 3.6 — The `components.md` Postprocessor Section is Wrong
 
@@ -244,9 +259,13 @@ The components doc says:
 
 But the `AXEPostprocessor` does **not** validate against Pydantic. It uses `json-repair` and fuzzy matching. It cannot "force" the output to match a schema. This will create false expectations and confusion.
 
+> fair enough, enforcement should be put, maybe with a loose mode to return as is without forcing the output.
+
 ### 3.7 — Missing: How to Extend the Pipeline
 
 There are `BasePruner`, `BaseExtractor`, `BasePreprocessor`, and `BasePostprocessor` abstract classes — a clear extension point. But there is **no documentation or example** showing how to write a custom component. This is a major missed opportunity. Add `docs/user-guide/extending.md`.
+
+> Good point, we need to add examples on how to extend both in code and docs.
 
 ---
 
@@ -263,12 +282,16 @@ result = pipeline.extract(url, query="...")  # Cached on disk after first run
 
 This could use `diskcache` or even just pickle files keyed by URL hash.
 
+> good enhancement but not a priority currently.
+
 ### 4.2 — No Retry Logic on URL Fetch Failures
 
 `fetch_content()` exists but the pipeline only wraps it in a bare `try/except` that silently replaces the content with `"[Fetch ERROR] ..."`. The string then gets processed by the model which will produce garbage. The pipeline should:
 1. Retry with exponential backoff on transient HTTP errors (429, 503)
 2. Mark the `AXEResult` with `Status.FAILED` and a meaningful error message
 3. Optionally accept a `requests.Session` for custom headers / cookie injection
+
+> Great thinking, retrying mechanisms shall be implemented.
 
 ### 4.3 — No Support for JavaScript-Rendered Pages
 
@@ -280,6 +303,8 @@ from axetract.fetchers import PlaywrightFetcher
 pipeline = AXEPipeline.from_config(fetcher=PlaywrightFetcher())
 ```
 
+> we will add it as an issue but won't fix it anytime soon since it needs research, not just coding.
+
 ### 4.4 — No Output Validation Against Pydantic Schema
 
 When a user passes `schema=MyModel`, the final `result.prediction` is a raw `dict`. There are no guarantees it matches `MyModel`. Users have to do `MyModel(**result.prediction)` themselves and handle `ValidationError`. The pipeline should:
@@ -290,6 +315,8 @@ result = pipeline.extract(url, schema=Product)
 # or result.status is FAILED with a validation error message
 ```
 
+> Correct, good catch
+
 ### 4.5 — No `dry_run` / `skip_pruner` Flag
 
 During development, users want to test extraction prompts without waiting for the pruner. A `skip_pruner=True` flag on `extract()` would be invaluable for iteration speed.
@@ -297,6 +324,8 @@ During development, users want to test extraction prompts without waiting for th
 ```python
 result = pipeline.extract(url, query="...", skip_pruner=True)  # fast debug mode
 ```
+
+> Sure, skipping pruner will be helpful for some users
 
 ### 4.6 — No Way to Inspect Intermediate Outputs
 
@@ -308,6 +337,8 @@ result.pruned_html     # What the pruner kept
 result.extractor_input # The exact string sent to the LLM
 result.raw_llm_output  # The raw text before JSON repair
 ```
+
+> good idea
 
 ### 4.7 — No LiteLLM / OpenAI Compatibility in `from_config()`
 
@@ -321,9 +352,13 @@ pipeline = AXEPipeline.from_config(
 )
 ```
 
+> This is cruical, but not in this way, just as I mentioned earlier with the LLM client, I want to have a child for litellm that inherits from the BaseLLM class. these two issues can be linked together.
+
 ### 4.8 — No Sitemap / Multi-Page Crawling Helper
 
 The batch API works per-URL, but there is no built-in utility to crawl a site or process a sitemap. A `from_sitemap(url)` helper or a `crawl(seed_url, depth=2)` mode would significantly expand the addressable use-cases.
+
+> Mmmm, no, a crawler is out of scope of this package, developers can use firecrawl or crawl4ai package.
 
 ---
 
@@ -340,12 +375,16 @@ q_preprocessed.put((mb_idx, mb))  # Pass through on error
 
 But the sample is silently passed through to the next stage with potentially corrupt state. The final `AXEResult` may have `Status.SUCCESS` even when an error occurred mid-pipeline. The `errors` list is logged as a warning but never exposed to the caller.
 
+> Yes, good catch
+
 ### 5.2 — `Status.FAILED` Provides No Root Cause
 
 When `result.status == Status.FAILED`, the `result.error` field says:
 > `"Encountered error/pending status: Status.FAILED"`
 
 This is useless. The error field should contain the actual exception message or stage name where failure occurred.
+
+> Yes, we shall use logging to log the error and the error field should contain meaningful values.
 
 ### 5.3 — Logging is All-Or-Nothing
 
@@ -360,6 +399,8 @@ result.metrics = {
     "total_time_s": 1.63
 }
 ```
+
+> Great, having logging.exception or error, and having some metrics is very useful for benchmarking too.
 
 ### 5.4 — The Schema Template Prompt Repetition is a Code Smell
 
@@ -383,6 +424,8 @@ This suggests schema adherence is a known pain point. This is a workaround, not 
 
 At minimum, this repeated line is embarrassing in a public library and should be addressed before any community exposure.
 
+> Mmmm, no, this empirically enhanced our results for the model, add this as an issue just because we need to add better default prompts in case a larger, stronger LLM was used, where this repetition is unnecessary.
+
 ---
 
 ## 6. Performance & Scalability
@@ -390,6 +433,8 @@ At minimum, this repeated line is embarrassing in a public library and should be
 ### 6.1 — `from_config(use_vllm=False)` Loads the Model on First Call, with No Warning
 
 When using `HuggingFaceClient`, the model is downloaded and loaded into memory the first time `extract()` is called. There is no progress bar, no log message visible at INFO level, and no way for the user to pre-warm the pipeline. Add a `pipeline.warmup()` method and log at INFO when the model starts loading.
+
+> Ok, no problems
 
 ### 6.2 — The Sequential Threshold is Hardcoded and Undocumented
 
@@ -402,6 +447,8 @@ if len(batch) <= self._micro_batch_size:
 
 The cutoff between sequential and pipelined execution is `micro_batch_size` (default 4). This is not documented anywhere. Users with batch sizes of 3 get sequential processing without knowing it. Make this configurable and document the trade-off.
 
+> Ok, needs to be added to docs as well as logging it in code as a warning.
+
 ### 6.3 — `ProcessPoolExecutor` in the Preprocessor Can Cause Issues in Certain Environments
 
 The preprocessor uses `ProcessPoolExecutor` for CPU-bound chunking. This breaks when:
@@ -411,9 +458,13 @@ The preprocessor uses `ProcessPoolExecutor` for CPU-bound chunking. This breaks 
 
 Add a graceful fallback to `ThreadPoolExecutor` when process spawning fails, and document this limitation.
 
+> Good idea.
+
 ### 6.4 — No Token Usage Tracking
 
 For users paying for API access (via `LiteLLMClient`), there is no tracking of tokens consumed. This makes cost estimation impossible. Add an optional `token_usage` field to `AXEResult`.
+
+> Good idea.
 
 ---
 

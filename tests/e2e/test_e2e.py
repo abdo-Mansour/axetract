@@ -104,7 +104,7 @@ class TestE2EProcessWithQuery:
         result = pipeline.process(PRODUCT_HTML, query="what is the weight and the price?")
         assert result.status == Status.SUCCESS
 
-    def test_result_has_no_error_on_success(self):
+    def test_result_is_no_error_on_success(self):
         pipeline = _make_pipeline()
         result = pipeline.process(PRODUCT_HTML, query="what is the weight and the price?")
         assert result.error is None

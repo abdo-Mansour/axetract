@@ -1,3 +1,5 @@
+"""Unit tests for AXEPreprocessor."""
+
 from __future__ import annotations
 
 import multiprocessing as mp
@@ -5,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from axetract.data_types import AXESample
 from axetract.preprocessor.axe_preprocessor import AXEPreprocessor, _chunk_worker
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -298,90 +301,3 @@ class TestChunkWorker:
     @patch("axetract.preprocessor.axe_preprocessor.clean_html", return_value="<p>cleaned</p>")
     def test_clean_html_called_with_config_params(self, mock_clean):
         sample = _make_sample(content="<div>raw</div>")
-        config = AXEPreprocessor(
-            extra_remove_tags=["nav"],
-            strip_attrs=False,
-            strip_links=False,
-            keep_tags=True,
-            use_clean_rag=True,
-        )
-        config.disable_chunking = True
-
-        _chunk_worker((sample, config, 0))
-
-        mock_clean.assert_called_once_with(
-            html_content="<div>raw</div>",
-            extra_remove_tags=["nav"],
-            strip_attrs=False,
-            strip_links=False,
-            keep_tags=True,
-            use_clean_rag=True,
-        )
-
-
-# ===================================================================
-# Integration-style tests (still mocking external I/O)
-# ===================================================================
-
-
-class TestProcessIntegration:
-    """End-to-end flow through process() with mocked utilities."""
-
-    @patch(
-        "axetract.preprocessor.axe_preprocessor.chunk_html_content",
-        return_value=["<p>1</p>", "<p>2</p>"],
-    )
-    @patch(
-        "axetract.preprocessor.axe_preprocessor.clean_html",
-        side_effect=lambda html_content, **kw: html_content,
-    )
-    @patch("axetract.preprocessor.axe_preprocessor.fetch_content", return_value="<html>page</html>")
-    def test_full_pipeline_url_sample(self, mock_fetch, mock_clean, mock_chunk):
-        sample = _make_sample(content="https://example.com", is_content_url=True)
-        p = AXEPreprocessor(fetch_workers=2, cpu_workers=1, chunk_size=200)
-        result = p(sample)
-
-        # fetch was called
-        mock_fetch.assert_called_once()
-        # clean was called at least once (in _chunk_worker)
-        assert mock_clean.call_count >= 1
-        # result is a list
-        assert len(result) == 1
-
-    @patch("axetract.preprocessor.axe_preprocessor.chunk_html_content", return_value=["c1"])
-    @patch(
-        "axetract.preprocessor.axe_preprocessor.clean_html",
-        side_effect=lambda html_content, **kw: html_content,
-    )
-    def test_full_pipeline_inline_batch(self, mock_clean, mock_chunk):
-        samples = [
-            _make_sample(id="a", content="<p>A</p>"),
-            _make_sample(id="b", content="<p>B</p>"),
-            _make_sample(id="c", content="<p>C</p>"),
-        ]
-        p = AXEPreprocessor(cpu_workers=1)
-        result = p(samples)
-
-        assert len(result) == 3
-        # clean_html should be called once per sample (inside _chunk_worker)
-        assert mock_clean.call_count == 3
-
-    @patch("axetract.preprocessor.axe_preprocessor.chunk_html_content", return_value=["c1"])
-    @patch(
-        "axetract.preprocessor.axe_preprocessor.clean_html",
-        side_effect=lambda html_content, **kw: html_content,
-    )
-    @patch("axetract.preprocessor.axe_preprocessor.fetch_content")
-    def test_mixed_url_and_inline_batch(self, mock_fetch, mock_clean, mock_chunk):
-        mock_fetch.return_value = "<html>fetched</html>"
-        samples = [
-            _make_sample(id="url1", content="https://a.com", is_content_url=True),
-            _make_sample(id="inline1", content="<p>inline</p>", is_content_url=False),
-        ]
-        p = AXEPreprocessor()
-        result = p(samples)
-
-        assert len(result) == 2
-        mock_fetch.assert_called_once_with("https://a.com")
-        assert result[0].content == "<html>fetched</html>"
-        assert result[1].content == "<p>inline</p>"

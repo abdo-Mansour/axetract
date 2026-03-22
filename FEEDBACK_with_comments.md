@@ -474,17 +474,25 @@ For users paying for API access (via `LiteLLMClient`), there is no tracking of t
 
 `tests/e2e/test_e2e.py` exists but its content is not visible in a typical CI run. If E2E tests are skipped/mocked, then there is no guarantee the actual HTML fetching + model inference works as advertised. Add at least one live integration test (gated behind an environment variable `RUN_E2E=1`) against a stable, publicly accessible URL.
 
+> Good idea, no problems with this.
+
 ### 7.2 — No Tests for the `LiteLLMClient`
 
 `tests/llm/` has tests but there are no tests for `LiteLLMClient`. Given that LiteLLM is the bridge to commercial providers (OpenAI, Anthropic, etc.), this is a gap.
+
+> Yes, this can be combined with the issue of adding liteLLM client for ease of use mentioned above.
 
 ### 7.3 — No Property-Based / Fuzz Tests for JSON Repair
 
 `json-repair` is used in a critical path. The kinds of malformed JSON an LLM produces are highly varied. Property-based tests using `hypothesis` would provide significantly better coverage than hand-crafted unit tests.
 
+> Good idea
+
 ### 7.4 — Test Coverage is Not Reported
 
 There is no coverage badge on the README, no `.coveragerc`, and no coverage reporting in the CI. Even a basic `pytest --cov=axetract` invocation in CI would surface untested code paths.
+
+> Good idea
 
 ---
 
@@ -494,13 +502,19 @@ There is no coverage badge on the README, no `.coveragerc`, and no coverage repo
 
 Without issue templates, bug reports will be low-quality and missing essential context (Python version, OS, model backend, HTML snippet that caused the issue). Add `.github/ISSUE_TEMPLATE/bug_report.md` and `feature_request.md`.
 
+> Great stuff
+
 ### 8.2 — No `SECURITY.md` is Meaningful
 
 The `SECURITY.md` exists, which is good. But check that it has actual contact information and a clear disclosure process, not just a placeholder.
 
+> yes, it has, no need to turn this into an issue.
+
 ### 8.3 — No Discussion Forum / Discord
 
 The community is pointed only to GitHub Issues. For a research-adjacent package, a GitHub Discussions tab or a Discord server would allow pre-issue questions, adapter sharing, and community benchmarking.
+
+> Hmmmm, our contact information exist, they cand send us emails, no need to turn this into an issue.
 
 ### 8.4 — `pyproject.toml` Only Declares Python 3.12
 
@@ -512,6 +526,8 @@ classifiers = [
 
 Python 3.12 is recent. Does it actually fail on 3.11? If not, declare `>=3.11` in both `requires-python` and classifiers. Narrower Python requirements reduce the addressable audience for no clear reason.
 
+> We need to have github actions / local ways to test different versions of python on the package to ensure compatability. good idea.
+
 ### 8.5 — No `pip install axetract[server]` Extra
 
 The server requires `fastapi`, `uvicorn`, and `python-dotenv`, but these are not in any optional dependency group. A user running the server will get `ImportError` on `fastapi`. Add:
@@ -521,6 +537,8 @@ The server requires `fastapi`, `uvicorn`, and `python-dotenv`, but these are not
 server = ["fastapi>=0.115", "uvicorn>=0.34", "python-dotenv>=1.0"]
 litellm = ["litellm>=1.67"]
 ```
+
+> good idea.
 
 ### 8.6 — Adapter Versions are Pinned to Implicit "Latest"
 
@@ -539,6 +557,7 @@ The HuggingFace model ID has `FINAL_EXTRA` in the name, which signals iteration 
     "revision": "v1.0.0",  # Pin to a git tag
 }
 ```
+> Ok, good idea
 
 ---
 
@@ -554,21 +573,31 @@ docker/
   docker-compose.yml  # server + optional GPU setup
 ```
 
+> great idea
+
 ### 9.2 — The FastAPI Server has No Authentication
 
 `/process` and `/process_batch` endpoints have no authentication, rate limiting, or input size validation. The `input_data` field accepts arbitrary strings with no max length. In a public deployment this is both a security and resource exhaustion risk.
+
+> This needs to be addressed in the server cli parameters, it should be supported via both `uv tool install axetract[server]` for example, and docker for people to run the image with correct parameters.
 
 ### 9.3 — The Server Startup Silently Fails
 
 If `AXEPipeline.from_config()` throws during startup, the `pipeline` global stays `None` and all subsequent requests return `503`. There is no crash — the server starts "successfully" and then fails every request silently. The startup error is only visible in logs. This should be a hard-fail: the server should refuse to start if the pipeline cannot be initialized.
 
+> Great idea
+
 ### 9.4 — No Health Check Returns Pipeline Details
 
 The `/health` endpoint only reports `pipeline_initialized: bool`. In production, this should include model name, adapter versions, GPU memory available, and uptime — standard observability for an ML serving system.
 
+> good idea
+
 ### 9.5 — No Kubernetes / Helm Chart Guidance
 
 For teams deploying this at scale, there is no guidance on horizontal scaling, resource requests (`nvidia.com/gpu: 1`), or liveness/readiness probe configuration. A brief `docs/deployment/kubernetes.md` would go a long way.
+
+> Hmmm, a bit too much, the server is made for basic stuff and local deployment, serious scaleable software teams will use the package with their own backend servers. But sure add it as an issue and will see about it later on.
 
 ---
 
@@ -587,6 +616,8 @@ For teams deploying this at scale, there is no guidance on horizontal scaling, r
 | 10.9 | The `CHANGELOG.md` entry is dated `2026-03-04` which is in the future relative to most readers — if the paper is under review, consider marking this clearly | Low | Low |
 | 10.10 | `is_content_url` is determined by checking if the string starts with `http://` or `https://` — this will misclassify raw HTML that begins with a comment like `<!-- https://... -->`. Use a proper URL validator (`urllib.parse.urlparse`) | Low | Medium |
 
+> Great points, we need an issue for each of these.
+> 10.7 can be combined with previous issue earlier
 ---
 
 ## Summary of Highest Priority Actions

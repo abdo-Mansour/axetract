@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import gc
 import logging
-import os
 import queue
 import threading
 import uuid
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Type, Union
 
 logger = logging.getLogger(__name__)
@@ -85,6 +85,26 @@ class AXEPipeline:
                 torch.cuda.empty_cache()
         except ImportError:
             pass
+
+    @staticmethod
+    def _read_path_content(path: Path) -> str:
+        """Read and return file content as string.
+
+        Args:
+            path (Path): Path to the file to read.
+
+        Returns:
+            str: The file content decoded as UTF-8.
+
+        Raises:
+            ValueError: If the file extension is not .html or .htm.
+        """
+        if path.suffix.lower() not in (".html", ".htm"):
+            raise ValueError(
+                f"Unsupported file type '{path.suffix}'. "
+                "Only .html and .htm files are supported."
+            )
+        return path.read_text(encoding="utf-8")
 
     @classmethod
     def from_config(
@@ -166,26 +186,35 @@ class AXEPipeline:
 
     def process(
         self,
-        input_data: str,
+        input_data: Union[str, Path],
         query: Optional[str] = None,
         schema: Optional[Union[Type[BaseModel], str, Dict[str, Any]]] = None,
     ) -> AXEResult:
         """Extract structured data from a single input document.
 
         Args:
-            input_data (str): URL or raw HTML content.
+            input_data (Union[str, Path]): URL, raw HTML content, or path to an
+                HTML file (.html or .htm). If a Path is provided, the file must
+                have a .html or .htm extension and its content will be read as HTML.
             query (Optional[str]): Natural language extraction prompt.
             schema (Optional[Union[Type[BaseModel], str, Dict[str, Any]]]): Desired output schema.
 
         Returns:
             AXEResult: The final extraction result.
         """
+        # Resolve Path to HTML content if applicable
+        if isinstance(input_data, Path):
+            content_str = self._read_path_content(input_data)
+            is_url = False
+        else:
+            content_str = input_data
+            is_url = input_data.strip().startswith(("http://", "https://"))
+
         # 1. Create sample
         sample = AXESample(
             id=str(uuid.uuid4()),
-            content=input_data,
-            # TODO: might need to do actual util function to check if it is url
-            is_content_url=input_data.strip().startswith(("http://", "https://")),
+            content=content_str,
+            is_content_url=is_url,
             query=query,
             schema_model=schema,
         )
@@ -194,30 +223,39 @@ class AXEPipeline:
 
     def process_many(
         self,
-        inputs: List[str],
+        inputs: List[Union[str, Path]],
         query: Optional[str] = None,
         schema: Optional[Union[Type[BaseModel], str, Dict[str, Any]]] = None,
     ) -> List[AXEResult]:
         """Helper method to apply the EXACT SAME query or schema across multiple documents simultaneously.
 
         Args:
-            inputs (List[str]): List of URLs or raw HTML strings.
+            inputs (List[Union[str, Path]]): List of URLs, raw HTML strings, or
+                paths to HTML files (.html or .htm). Paths must have .html or .htm
+                extension.
             query (Optional[str]): Extraction query for all documents.
             schema (Optional[Union[Type[BaseModel], str, Dict[str, Any]]]): Common schema.
 
         Returns:
             List[AXEResult]: Results for each input document.
         """
-        batch = [
-            AXESample(
-                id=str(uuid.uuid4()),
-                content=data,
-                is_content_url=data.strip().startswith(("http://", "https://")),
-                query=query,
-                schema_model=schema,
+        batch = []
+        for data in inputs:
+            if isinstance(data, Path):
+                content_str = self._read_path_content(data)
+                is_url = False
+            else:
+                content_str = data
+                is_url = data.strip().startswith(("http://", "https://"))
+            batch.append(
+                AXESample(
+                    id=str(uuid.uuid4()),
+                    content=content_str,
+                    is_content_url=is_url,
+                    query=query,
+                    schema_model=schema,
+                )
             )
-            for data in inputs
-        ]
         return self.process_batch(batch)
 
     def _format_batch(self, batch: List[Union[AXESample, Dict[str, Any]]]) -> List[AXESample]:
@@ -233,11 +271,17 @@ class AXEPipeline:
         for item in batch:
             if isinstance(item, dict):
                 input_data = item.get("input_data", "")
+                if isinstance(input_data, Path):
+                    content_str = self._read_path_content(input_data)
+                    is_url = False
+                else:
+                    content_str = input_data
+                    is_url = input_data.strip().startswith(("http://", "https://")) if input_data else False
                 formatted.append(
                     AXESample(
                         id=str(item.get("id", uuid.uuid4())),
-                        content=input_data,
-                        is_content_url=input_data.strip().startswith(("http://", "https://")),
+                        content=content_str,
+                        is_content_url=is_url,
                         query=item.get("query"),
                         schema_model=item.get("schema"),
                     )

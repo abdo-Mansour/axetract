@@ -4,7 +4,7 @@
 
 # Axetract
 
-**High-performance, LoRA-powered web data extraction.**
+**High-performance, LoRA-powered web data extraction. Based on the Paper [AXE: Low-Cost Cross-Domain Web Structured Information Extraction](https://arxiv.org/abs/2602.01838)**
 
 [Getting Started](getting-started.md){ .md-button .md-button--primary }
 [GitHub](https://github.com/abdo-Mansour/axetract){ .md-button }

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import threading
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -11,6 +13,9 @@ try:
     VLLM_AVAILABLE = True
 except ImportError:
     VLLM_AVAILABLE = False
+    LLM = Any
+    SamplingParams = Any
+    LoRARequest = Any
 
 _vllm_init_lock = threading.Lock()
 
@@ -90,7 +95,7 @@ class LocalVLLMClient(BaseClient):
             top_p=params["top_p"],
             max_tokens=params["max_tokens"],
             stop=params["stop"],
-            truncate_prompt_tokens=safe_truncate_len,
+            # truncate_prompt_tokens=safe_truncate_len,
         )
 
     def call_batch(

@@ -3,7 +3,7 @@ from __future__ import annotations
 import multiprocessing as mp
 import traceback
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from axetract.data_types import AXEChunk, AXESample
 from axetract.preprocessor.base_preprocessor import BasePreprocessor
@@ -118,19 +118,19 @@ class AXEPreprocessor(BasePreprocessor):
         self.attr_cutoff_len = attr_cutoff_len
         self.disable_chunking = disable_chunking
 
-    def __call__(self, batch: List[AXESample]) -> List[AXESample]:
+    def __call__(self, samples: list[AXESample] | AXESample) -> List[AXESample]:
         """Fetch, clean, and chunk a batch of samples.
 
         Args:
-            batch (List[AXESample]): Input samples (URLs or raw HTML).
+            samples (list[AXESample]): Input samples (URLs or raw HTML).
 
         Returns:
-            List[AXESample]: Samples with chunks populated.
+            list[AXESample]: Samples with chunks populated.
         """
-        if isinstance(batch, AXESample):
-            batch = [batch]
+        if isinstance(samples, AXESample):
+            samples = [samples]
 
-        n = len(batch)
+        n = len(samples)
         if n == 0:
             return []
 
@@ -150,7 +150,7 @@ class AXEPreprocessor(BasePreprocessor):
 
         # Fetching the content if there are any URLs
         with ThreadPoolExecutor(max_workers=min(self.fetch_workers, max(1, n))) as tpool:
-            batch = list(tpool.map(_quick_fetch, batch))
+            samples = list(tpool.map(_quick_fetch, samples))
 
         results = [None] * n
         # choose executor class and max_workers
@@ -164,18 +164,18 @@ class AXEPreprocessor(BasePreprocessor):
             max_workers = min(self.fetch_workers or n, max(1, n))
 
         # prepare enumerated args (Sample, config, index)
-        items = [(batch[i], self, i) for i in range(n)]
+        items = [(samples[i], self, i) for i in range(n)]
 
-        results: List[Dict] = [None] * n
+        results: list[Dict] = [None] * n # type: ignore[assignment]
 
         with executor_cls(max_workers=max_workers) as ex:
             for idx, res in enumerate(ex.map(_chunk_worker, items)):
                 results[idx] = res
 
         for i, res in enumerate(results):
-            batch[i].chunks = [
+            samples[i].chunks = [
                 AXEChunk(chunkid=chunk["chunkid"], content=chunk["chunkcontent"])
                 for chunk in res["chunks"]
             ]
 
-        return batch
+        return samples

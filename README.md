@@ -3,12 +3,13 @@
   <h1>AXEtract</h1>
   <h3>Low-Cost Cross-Domain Web Structured Information Extraction</h3>
 
-  [![Documentation](https://img.shields.io/badge/docs-latest-teal)](https://abdo-mansour.github.io/axetract/)
-  [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-  [![GitHub](https://img.shields.io/github/stars/abdo-Mansour/axetract?style=social)](https://github.com/abdo-Mansour/axetract)
+[!\[Documentation\](https://img.shields.io/badge/docs-latest-teal null)](https://abdo-mansour.github.io/axetract/)
+[!\[License: MIT\](https://img.shields.io/badge/License-MIT-yellow.svg null)](https://opensource.org/licenses/MIT)
+[!\[GitHub\](https://img.shields.io/github/stars/abdo-Mansour/axetract?style=social null)](https://github.com/abdo-Mansour/axetract)
+
 </div>
 
----
+***
 
 **AXEtract** is a high-performance, low-cost framework for extracting structured data from web pages. Based on the paper **"AXE: Low-Cost Cross-Domain Web Structured Information Extraction"**, it optimizes the extraction pipeline by using specialized LoRA adapters for pruning and query-specific extraction, enabling state-of-the-art results with small models (e.g., Qwen3-0.6B).
 
@@ -24,11 +25,11 @@
 
 AXEtract follows a three-part decoupled pipeline for maximum efficiency:
 
-1.  **Preprocessor**: Fetches raw HTML and chunks it into manageable, token-aware fragments.
-2.  **AI Extractor**: Divided into two stages:
-    *   **Pruner**: A lightweight LLM (LoRA-powered) filters out noise and selects only relevant HTML chunks.
-    *   **Extractor**: A task-specific LLM maps the pruned HTML content directly to a structured JSON schema or natural language answer.
-3.  **Postprocessor**: Validates the output and resolves source XPaths via Grounded XPath Resolution (GXR).
+1. **Preprocessor**: Fetches raw HTML and chunks it into manageable, token-aware fragments.
+2. **AI Extractor**: Divided into two stages:
+   - **Pruner**: A lightweight LLM (LoRA-powered) filters out noise and selects only relevant HTML chunks.
+   - **Extractor**: A task-specific LLM maps the pruned HTML content directly to a structured JSON schema or natural language answer.
+3. **Postprocessor**: Validates the output and resolves source XPaths via Grounded XPath Resolution (GXR).
 
 ## 📦 Installation
 

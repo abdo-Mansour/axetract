@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import multiprocessing as mp
 from unittest.mock import MagicMock, patch
 
 from axetract.data_types import AXESample
@@ -33,17 +34,16 @@ class TestAXEPreprocessorInit:
 
     def test_default_values(self):
         p = AXEPreprocessor()
-        assert p.fetch_workers == 1
-        assert p.cpu_workers == 1
-        assert p.extra_remove_tags is None
+        assert p.fetch_workers == mp.cpu_count()
+        assert p.cpu_workers == mp.cpu_count()
+        assert p.extra_remove_tags == ["header", "footer"]
         assert p.strip_attrs is True
         assert p.strip_links is True
-        assert p.keep_tags is False
-        # Defaults from the real implementation
+        assert p.keep_tags is True
         assert p.use_clean_rag is True
         assert p.use_clean_chunker is True
-        assert p.chunk_size == 1000
-        assert p.attr_cutoff_len == 100
+        assert p.chunk_size == 2000
+        assert p.attr_cutoff_len == 5
         assert p.disable_chunking is False
 
     def test_custom_values(self):
@@ -359,7 +359,7 @@ class TestProcessIntegration:
             _make_sample(id="b", content="<p>B</p>"),
             _make_sample(id="c", content="<p>C</p>"),
         ]
-        p = AXEPreprocessor()
+        p = AXEPreprocessor(cpu_workers=1)
         result = p(samples)
 
         assert len(result) == 3

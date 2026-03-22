@@ -6,3 +6,4 @@ site
 .ruff_cache
 ignore/
 *.log
+.vscode/settings.json

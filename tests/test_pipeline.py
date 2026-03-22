@@ -52,30 +52,30 @@ class TestAXEPipelineInit:
     def test_stores_components(self):
         p, pr, e, pp = _make_mock_components()
         pipeline = AXEPipeline(preprocessor=p, pruner=pr, extractor=e, postprocessor=pp)
-        assert pipeline.preprocessor is p
-        assert pipeline.pruner is pr
-        assert pipeline.extractor is e
-        assert pipeline.postprocessor is pp
+        assert pipeline._preprocessor is p
+        assert pipeline._pruner is pr
+        assert pipeline._extractor is e
+        assert pipeline._postprocessor is pp
 
 
 class TestAXEPipelineProcess:
     def test_returns_axe_result(self):
         p, pr, e, pp = _make_mock_components()
         pipeline = AXEPipeline(preprocessor=p, pruner=pr, extractor=e, postprocessor=pp)
-        result = pipeline.process("<p>Hello</p>", query="What?")
+        result = pipeline.extract("<p>Hello</p>", query="What?")
         assert isinstance(result, AXEResult)
 
     def test_result_has_id(self):
         p, pr, e, pp = _make_mock_components()
         pipeline = AXEPipeline(preprocessor=p, pruner=pr, extractor=e, postprocessor=pp)
-        result = pipeline.process("<p>Hello</p>", query="What?")
+        result = pipeline.extract("<p>Hello</p>", query="What?")
         assert result.id is not None
         assert len(result.id) > 0
 
     def test_url_content_detected(self):
         p, pr, e, pp = _make_mock_components()
         pipeline = AXEPipeline(preprocessor=p, pruner=pr, extractor=e, postprocessor=pp)
-        pipeline.process("https://example.com", query="title?")
+        pipeline.extract("https://example.com", query="title?")
         # preprocessor receives a sample with is_content_url=True
         call_args = p.call_args[0][0]
         assert call_args[0].is_content_url is True
@@ -83,14 +83,14 @@ class TestAXEPipelineProcess:
     def test_inline_html_not_url(self):
         p, pr, e, pp = _make_mock_components()
         pipeline = AXEPipeline(preprocessor=p, pruner=pr, extractor=e, postprocessor=pp)
-        pipeline.process("<p>inline</p>", query="q?")
+        pipeline.extract("<p>inline</p>", query="q?")
         call_args = p.call_args[0][0]
         assert call_args[0].is_content_url is False
 
     def test_success_result_has_no_error(self):
         p, pr, e, pp = _make_mock_components()
         pipeline = AXEPipeline(preprocessor=p, pruner=pr, extractor=e, postprocessor=pp)
-        result = pipeline.process("<p>Hello</p>", query="What?")
+        result = pipeline.extract("<p>Hello</p>", query="What?")
         assert result.status == Status.SUCCESS
         assert result.error is None
 
@@ -112,7 +112,7 @@ class TestAXEPipelineProcess:
         pipeline = AXEPipeline(
             preprocessor=p, pruner=pr, extractor=extractor, postprocessor=postprocessor
         )
-        result = pipeline.process("<p>Hello</p>", query="What?")
+        result = pipeline.extract("<p>Hello</p>", query="What?")
         assert result.status == Status.FAILED
         assert result.error is not None
 
@@ -147,7 +147,7 @@ class TestAXEPipelineProcess:
             extractor=MagicMock(side_effect=_e),
             postprocessor=MagicMock(side_effect=_pp),
         )
-        pipeline.process("<p>Hi</p>", query="q?")
+        pipeline.extract("<p>Hi</p>", query="q?")
         assert order == ["preprocessor", "pruner", "extractor", "postprocessor"]
 
 
@@ -156,21 +156,21 @@ class TestAXEPipelineProcessMany:
         p, pr, e, pp = _make_mock_components()
         pipeline = AXEPipeline(preprocessor=p, pruner=pr, extractor=e, postprocessor=pp)
         inputs = ["<p>One</p>", "<p>Two</p>", "<p>Three</p>"]
-        results = pipeline.process_many(inputs, query="What?")
+        results = pipeline.extract_batch_same_query(inputs, query="What?")
         assert isinstance(results, list)
         assert len(results) == 3
 
     def test_each_result_is_axe_result(self):
         p, pr, e, pp = _make_mock_components()
         pipeline = AXEPipeline(preprocessor=p, pruner=pr, extractor=e, postprocessor=pp)
-        results = pipeline.process_many(["<p>A</p>", "<p>B</p>"], query="q?")
+        results = pipeline.extract_batch_same_query(["<p>A</p>", "<p>B</p>"], query="q?")
         for r in results:
             assert isinstance(r, AXEResult)
 
     def test_same_query_applied_to_all(self):
         p, pr, e, pp = _make_mock_components()
         pipeline = AXEPipeline(preprocessor=p, pruner=pr, extractor=e, postprocessor=pp)
-        results = pipeline.process_many(["<p>A</p>", "<p>B</p>"], query="shared?")
+        results = pipeline.extract_batch_same_query(["<p>A</p>", "<p>B</p>"], query="shared?")
         # All should succeed
         for r in results:
             assert r.status == Status.SUCCESS
@@ -184,7 +184,7 @@ class TestAXEPipelineProcessBatch:
             AXESample(id="1", content="<p>A</p>", is_content_url=False, query="q?"),
             AXESample(id="2", content="<p>B</p>", is_content_url=False, query="q?"),
         ]
-        results = pipeline.process_batch(samples)
+        results = pipeline.extract_batch(samples)
         assert len(results) == 2
 
     def test_accepts_dicts(self):
@@ -194,14 +194,14 @@ class TestAXEPipelineProcessBatch:
             {"input_data": "<p>A</p>", "query": "What?"},
             {"input_data": "<p>B</p>", "query": "What?"},
         ]
-        results = pipeline.process_batch(dicts)
+        results = pipeline.extract_batch(dicts)
         assert len(results) == 2
 
     def test_dict_with_id_preserved(self):
         p, pr, e, pp = _make_mock_components()
         pipeline = AXEPipeline(preprocessor=p, pruner=pr, extractor=e, postprocessor=pp)
         dicts = [{"id": "my-id", "input_data": "<p>X</p>", "query": "q?"}]
-        results = pipeline.process_batch(dicts)
+        results = pipeline.extract_batch(dicts)
         # The result id should match the provided id
         assert results[0].id == "my-id"
 
@@ -212,7 +212,7 @@ class TestAXEPipelineProcessBatch:
             AXESample(id="s1", content="<p>A</p>", is_content_url=False, query="q?"),
             {"input_data": "<p>B</p>", "query": "q?"},
         ]
-        results = pipeline.process_batch(batch)
+        results = pipeline.extract_batch(batch)
         assert len(results) == 2
 
     def test_empty_batch_returns_empty(self):
@@ -220,5 +220,5 @@ class TestAXEPipelineProcessBatch:
         pipeline = AXEPipeline(preprocessor=p, pruner=pr, extractor=e, postprocessor=pp)
         # Preprocessor must handle empty list
         p.side_effect = lambda batch: batch
-        results = pipeline.process_batch([])
+        results = pipeline.extract_batch([])
         assert results == []

@@ -96,22 +96,22 @@ def _make_pipeline(
 class TestE2EProcessWithQuery:
     def test_returns_axe_result(self):
         pipeline = _make_pipeline()
-        result = pipeline.process(PRODUCT_HTML, query="what is the weight and the price?")
+        result = pipeline.extract(PRODUCT_HTML, query="what is the weight and the price?")
         assert isinstance(result, AXEResult)
 
     def test_result_is_success(self):
         pipeline = _make_pipeline()
-        result = pipeline.process(PRODUCT_HTML, query="what is the weight and the price?")
+        result = pipeline.extract(PRODUCT_HTML, query="what is the weight and the price?")
         assert result.status == Status.SUCCESS
 
     def test_result_is_no_error_on_success(self):
         pipeline = _make_pipeline()
-        result = pipeline.process(PRODUCT_HTML, query="what is the weight and the price?")
+        result = pipeline.extract(PRODUCT_HTML, query="what is the weight and the price?")
         assert result.error is None
 
     def test_prediction_contains_price_and_weight(self):
         pipeline = _make_pipeline()
-        result = pipeline.process(PRODUCT_HTML, query="what is the weight and the price?")
+        result = pipeline.extract(PRODUCT_HTML, query="what is the weight and the price?")
         pred = result.prediction
         # Prediction should be a dict or string containing our mocked data
         if isinstance(pred, dict):
@@ -121,7 +121,7 @@ class TestE2EProcessWithQuery:
 
     def test_result_has_id(self):
         pipeline = _make_pipeline()
-        result = pipeline.process(PRODUCT_HTML, query="q?")
+        result = pipeline.extract(PRODUCT_HTML, query="q?")
         assert result.id and len(result.id) > 0
 
 
@@ -135,17 +135,17 @@ class TestE2EProcessWithSchema:
 
     def test_returns_axe_result(self):
         pipeline = _make_pipeline()
-        result = pipeline.process(PRODUCT_HTML, schema=self.SCHEMA)
+        result = pipeline.extract(PRODUCT_HTML, schema=self.SCHEMA)
         assert isinstance(result, AXEResult)
 
     def test_result_is_success(self):
         pipeline = _make_pipeline()
-        result = pipeline.process(PRODUCT_HTML, schema=self.SCHEMA)
+        result = pipeline.extract(PRODUCT_HTML, schema=self.SCHEMA)
         assert result.status == Status.SUCCESS
 
     def test_dict_schema_accepted(self):
         pipeline = _make_pipeline()
-        result = pipeline.process(
+        result = pipeline.extract(
             PRODUCT_HTML,
             schema={"price": "string", "weight": "string"},
         )
@@ -160,7 +160,7 @@ class TestE2EProcessWithSchema:
             extractor_prediction='{"price": "$299", "weight": "1.2kg"}',
             postprocessor_prediction={"price": "$299", "weight": "1.2kg"},
         )
-        result = pipeline.process(PRODUCT_HTML, schema=ProductSchema)
+        result = pipeline.extract(PRODUCT_HTML, schema=ProductSchema)
         assert result.status == Status.SUCCESS
 
 
@@ -169,22 +169,22 @@ class TestE2EProcessWithSchema:
 # ===========================================================================
 
 
-class TestE2EProcessMany:
+class TestE2EExtractBatchSameQuery:
     def test_correct_number_of_results(self):
         pipeline = _make_pipeline()
         docs = [PRODUCT_HTML, "<p>Another page</p>", "<div>Third</div>"]
-        results = pipeline.process_many(docs, query="extract info")
+        results = pipeline.extract_batch_same_query(docs, query="extract info")
         assert len(results) == 3
 
     def test_all_results_are_axe_results(self):
         pipeline = _make_pipeline()
-        results = pipeline.process_many([PRODUCT_HTML, "<p>B</p>"], query="What is the title?")
+        results = pipeline.extract_batch_same_query([PRODUCT_HTML, "<p>B</p>"], query="What is the title?")
         for r in results:
             assert isinstance(r, AXEResult)
 
     def test_all_results_are_success(self):
         pipeline = _make_pipeline()
-        results = pipeline.process_many([PRODUCT_HTML, "<p>B</p>"], query="q?")
+        results = pipeline.extract_batch_same_query([PRODUCT_HTML, "<p>B</p>"], query="q?")
         for r in results:
             assert r.status == Status.SUCCESS
 
@@ -194,14 +194,14 @@ class TestE2EProcessMany:
 # ===========================================================================
 
 
-class TestE2EProcessBatch:
+class TestE2EExtractBatch:
     def test_dict_inputs_processed(self):
         pipeline = _make_pipeline()
         batch = [
             {"input_data": PRODUCT_HTML, "query": "get price"},
             {"input_data": "<p>Other</p>", "schema": '{"title": "string"}'},
         ]
-        results = pipeline.process_batch(batch)
+        results = pipeline.extract_batch(batch)
         assert len(results) == 2
         for r in results:
             assert isinstance(r, AXEResult)
@@ -211,12 +211,12 @@ class TestE2EProcessBatch:
         samples = [
             AXESample(id="s1", content=PRODUCT_HTML, is_content_url=False, query="q?"),
         ]
-        results = pipeline.process_batch(samples)
+        results = pipeline.extract_batch(samples)
         assert len(results) == 1
         assert results[0].status == Status.SUCCESS
 
     def test_empty_batch(self):
         pipeline = _make_pipeline()
-        pipeline.preprocessor.side_effect = lambda batch: batch
-        results = pipeline.process_batch([])
+        pipeline._preprocessor.side_effect = lambda batch: batch
+        results = pipeline.extract_batch([])
         assert results == []

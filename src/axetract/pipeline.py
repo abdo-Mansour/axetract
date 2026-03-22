@@ -63,11 +63,11 @@ class AXEPipeline:
             micro_batch_size (int): Micro-batch size for pipelined execution.
                 Controls the granularity of CPU/GPU overlap. Default 4.
         """
-        self.preprocessor = preprocessor
-        self.pruner = pruner
-        self.extractor = extractor
-        self.postprocessor = postprocessor
-        self.micro_batch_size = micro_batch_size
+        self._preprocessor = preprocessor
+        self._pruner = pruner
+        self._extractor = extractor
+        self._postprocessor = postprocessor
+        self._micro_batch_size = micro_batch_size
 
     @staticmethod
     def _free_gpu_cache():
@@ -184,7 +184,7 @@ class AXEPipeline:
             postprocessor=postprocessor,
         )
 
-    def process(
+    def extract(
         self,
         input_data: Union[str, Path],
         query: Optional[str] = None,
@@ -219,9 +219,9 @@ class AXEPipeline:
             schema_model=schema,
         )
 
-        return self.process_batch([sample])[0]
+        return self.extract_batch([sample])[0]
 
-    def process_many(
+    def extract_batch_same_query(
         self,
         inputs: List[Union[str, Path]],
         query: Optional[str] = None,
@@ -256,7 +256,7 @@ class AXEPipeline:
                     schema_model=schema,
                 )
             )
-        return self.process_batch(batch)
+        return self.extract_batch(batch)
 
     def _format_batch(self, batch: List[Union[AXESample, Dict[str, Any]]]) -> List[AXESample]:
         """Convert dicts to AXESamples if necessary.
@@ -331,7 +331,7 @@ class AXEPipeline:
 
         # 1. Preprocess (Fetch & Chunk)
         logger.debug("Step 1: Running preprocessor...")
-        batch = self.preprocessor(batch)
+        batch = self._preprocessor(batch)
         for i, sample in enumerate(batch):
             chunks = sample.chunks or []
             chunk_summary = [(c.chunkid, len(c.content)) for c in chunks]
@@ -341,9 +341,9 @@ class AXEPipeline:
             )
 
         # 2. Prune
-        if self.pruner:
+        if self._pruner:
             logger.debug("Step 2: Running pruner...")
-            batch = self.pruner(batch)
+            batch = self._pruner(batch)
             for i, sample in enumerate(batch):
                 xpaths = sample.xpaths or []
                 logger.debug("  -> Sample %d after pruner: %d xpath(s) -> %s", i, len(xpaths), xpaths)
@@ -351,14 +351,14 @@ class AXEPipeline:
         # 3. Extract
         self._free_gpu_cache()
         logger.debug("Step 3: Running extractor...")
-        batch = self.extractor(batch)
+        batch = self._extractor(batch)
         for i, sample in enumerate(batch):
             logger.debug("  -> Sample %d after extractor: %s", i, sample.prediction)
 
         # 4. Postprocess
-        if self.postprocessor:
+        if self._postprocessor:
             logger.debug("Step 4: Running postprocessor...")
-            batch = self.postprocessor(batch)
+            batch = self._postprocessor(batch)
             for i, sample in enumerate(batch):
                 logger.debug("  -> Sample %d after postprocessor: %s", i, sample.prediction)
 
@@ -414,7 +414,7 @@ class AXEPipeline:
             for mb_idx, mb in enumerate(micro_batches):
                 try:
                     logger.debug("[Pipeline] Preprocessing micro-batch %d/%d", mb_idx + 1, num_mbs)
-                    processed = self.preprocessor(mb)
+                    processed = self._preprocessor(mb)
                     q_preprocessed.put((mb_idx, processed))
                 except Exception as e:
                     logger.error("[Pipeline] Preprocess error on micro-batch %d: %s", mb_idx, e)
@@ -430,9 +430,9 @@ class AXEPipeline:
                     break
                 mb_idx, mb = item
                 try:
-                    if self.pruner:
+                    if self._pruner:
                         logger.debug("[Pipeline] Pruning micro-batch %d/%d", mb_idx + 1, num_mbs)
-                        mb = self.pruner(mb)
+                        mb = self._pruner(mb)
                 except Exception as e:
                     logger.error("[Pipeline] Pruner error on micro-batch %d: %s", mb_idx, e)
                     errors.append(e)
@@ -448,7 +448,7 @@ class AXEPipeline:
                 mb_idx, mb = item
                 try:
                     logger.debug("[Pipeline] Extracting micro-batch %d/%d", mb_idx + 1, num_mbs)
-                    mb = self.extractor(mb)
+                    mb = self._extractor(mb)
                 except Exception as e:
                     logger.error("[Pipeline] Extractor error on micro-batch %d: %s", mb_idx, e)
                     errors.append(e)
@@ -463,11 +463,11 @@ class AXEPipeline:
                     break
                 mb_idx, mb = item
                 try:
-                    if self.postprocessor:
+                    if self._postprocessor:
                         logger.debug(
                             "[Pipeline] Postprocessing micro-batch %d/%d", mb_idx + 1, num_mbs,
                         )
-                        mb = self.postprocessor(mb)
+                        mb = self._postprocessor(mb)
                 except Exception as e:
                     logger.error("[Pipeline] Postprocess error on micro-batch %d: %s", mb_idx, e)
                     errors.append(e)
@@ -502,7 +502,7 @@ class AXEPipeline:
     # Public Entry Point
     # ──────────────────────────────────────────────────────────────────
 
-    def process_batch(self, batch: List[Union[AXESample, Dict[str, Any]]]) -> List[AXEResult]:
+    def extract_batch(self, batch: List[Union[AXESample, Dict[str, Any]]]) -> List[AXEResult]:
         """Main execution flow of the pipeline.
 
         Accepts a list of AXESample objects OR a list of dictionaries.
@@ -521,10 +521,10 @@ class AXEPipeline:
         logger.debug("Starting pipeline processing for batch of size %d", len(batch))
 
         # Choose execution strategy based on batch size
-        if len(batch) <= self.micro_batch_size:
+        if len(batch) <= self._micro_batch_size:
             processed = self._process_sequential(batch)
         else:
-            processed = self._process_pipelined(batch, self.micro_batch_size)
+            processed = self._process_pipelined(batch, self._micro_batch_size)
 
         logger.debug("Pipeline processing completed successfully.")
         return self._to_results(processed)

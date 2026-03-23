@@ -81,7 +81,7 @@ async def process(request: ProcessRequest):
     """
     if pipeline is None:
         raise HTTPException(status_code=503, detail="Pipeline not initialized")
-    
+
     logger.debug("Received process request for input: %s", request.input_data[:100] + "...")
     try:
         result = pipeline.extract(
@@ -104,7 +104,7 @@ async def process_batch(request: BatchProcessRequest):
     """
     if pipeline is None:
         raise HTTPException(status_code=503, detail="Pipeline not initialized")
-    
+
     logger.debug("Received process_batch request with %d items", len(request.items))
     try:
         batch = [

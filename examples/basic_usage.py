@@ -49,8 +49,8 @@ urls = [
     "https://en.wikipedia.org/wiki/Izz_ad-Din_al-Qassam",
     "https://en.wikipedia.org/wiki/Nelson_Mandela",
 ]
-results = extractor.extract_batch_same_query(
-    inputs=urls,
+results = extractor.extract(
+    urls,
     query="Extract the person's name, birth date, and occupation"
 )
 for r in results:

@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Breaking Changes
+
+- `extract_batch_same_query()` has been removed. Use `extract(inputs_list, query=...)` instead.
+- `extract()` now accepts either a single input or a list of inputs:
+  - Single input: `extract("url", query="...")` returns `AXEResult`
+  - List of inputs: `extract(["url1", "url2"], query="...")` returns `List[AXEResult]`
+
+### Changed
+
+- Unified `extract()` API to handle both single and batch extraction with same query
+
+### Fixed
+
+- Documentation now correctly references `extract()` and `extract_batch()` instead of non-existent `process_many()` and `process_batch()`
+
 ## [0.1.0] - 2026-03-04
 
 ### Added

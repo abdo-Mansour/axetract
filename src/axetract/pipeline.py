@@ -6,7 +6,7 @@ import queue
 import threading
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Type, Union
+from typing import Any, Dict, List, Optional, Type, Union, overload
 
 logger = logging.getLogger(__name__)
 
@@ -184,25 +184,66 @@ class AXEPipeline:
             postprocessor=postprocessor,
         )
 
+    @overload
     def extract(
         self,
         input_data: Union[str, Path],
         query: Optional[str] = None,
         schema: Optional[Union[Type[BaseModel], str, Dict[str, Any]]] = None,
-    ) -> AXEResult:
-        """Extract structured data from a single input document.
+    ) -> AXEResult: ...
+
+    @overload
+    def extract(
+        self,
+        input_data: List[Union[str, Path]],
+        query: Optional[str] = None,
+        schema: Optional[Union[Type[BaseModel], str, Dict[str, Any]]] = None,
+    ) -> List[AXEResult]: ...
+
+    def extract(
+        self,
+        input_data: Union[str, Path, List[Union[str, Path]]],
+        query: Optional[str] = None,
+        schema: Optional[Union[Type[BaseModel], str, Dict[str, Any]]] = None,
+    ) -> Union[AXEResult, List[AXEResult]]:
+        """Extract structured data from input documents.
+
+        Supports both single documents and multiple documents with the same query.
 
         Args:
-            input_data (Union[str, Path]): URL, raw HTML content, or path to an
-                HTML file (.html or .htm). If a Path is provided, the file must
-                have a .html or .htm extension and its content will be read as HTML.
+            input_data (Union[str, Path, List[Union[str, Path]]]): URL(s), raw HTML
+                content(s), or path(s) to HTML file(s) (.html or .htm). If a Path
+                is provided, the file must have a .html or .htm extension and its
+                content will be read as HTML.
             query (Optional[str]): Natural language extraction prompt.
             schema (Optional[Union[Type[BaseModel], str, Dict[str, Any]]]): Desired output schema.
 
         Returns:
-            AXEResult: The final extraction result.
+            Union[AXEResult, List[AXEResult]]: A single extraction result for single
+                input, or a list of results for multiple inputs.
         """
-        # Resolve Path to HTML content if applicable
+        # Handle list of inputs
+        if isinstance(input_data, list):
+            batch = []
+            for data in input_data:
+                if isinstance(data, Path):
+                    content_str = self._read_path_content(data)
+                    is_url = False
+                else:
+                    content_str = data
+                    is_url = data.strip().startswith(("http://", "https://"))
+                batch.append(
+                    AXESample(
+                        id=str(uuid.uuid4()),
+                        content=content_str,
+                        is_content_url=is_url,
+                        query=query,
+                        schema_model=schema,
+                    )
+                )
+            return self.extract_batch(batch)
+
+        # Handle single input
         if isinstance(input_data, Path):
             content_str = self._read_path_content(input_data)
             is_url = False
@@ -210,7 +251,6 @@ class AXEPipeline:
             content_str = input_data
             is_url = input_data.strip().startswith(("http://", "https://"))
 
-        # 1. Create sample
         sample = AXESample(
             id=str(uuid.uuid4()),
             content=content_str,
@@ -220,43 +260,6 @@ class AXEPipeline:
         )
 
         return self.extract_batch([sample])[0]
-
-    def extract_batch_same_query(
-        self,
-        inputs: List[Union[str, Path]],
-        query: Optional[str] = None,
-        schema: Optional[Union[Type[BaseModel], str, Dict[str, Any]]] = None,
-    ) -> List[AXEResult]:
-        """Helper method to apply the EXACT SAME query or schema across multiple documents simultaneously.
-
-        Args:
-            inputs (List[Union[str, Path]]): List of URLs, raw HTML strings, or
-                paths to HTML files (.html or .htm). Paths must have .html or .htm
-                extension.
-            query (Optional[str]): Extraction query for all documents.
-            schema (Optional[Union[Type[BaseModel], str, Dict[str, Any]]]): Common schema.
-
-        Returns:
-            List[AXEResult]: Results for each input document.
-        """
-        batch = []
-        for data in inputs:
-            if isinstance(data, Path):
-                content_str = self._read_path_content(data)
-                is_url = False
-            else:
-                content_str = data
-                is_url = data.strip().startswith(("http://", "https://"))
-            batch.append(
-                AXESample(
-                    id=str(uuid.uuid4()),
-                    content=content_str,
-                    is_content_url=is_url,
-                    query=query,
-                    schema_model=schema,
-                )
-            )
-        return self.extract_batch(batch)
 
     def _format_batch(self, batch: List[Union[AXESample, Dict[str, Any]]]) -> List[AXESample]:
         """Convert dicts to AXESamples if necessary.

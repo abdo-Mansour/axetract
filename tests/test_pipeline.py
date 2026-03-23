@@ -151,26 +151,26 @@ class TestAXEPipelineProcess:
         assert order == ["preprocessor", "pruner", "extractor", "postprocessor"]
 
 
-class TestAXEPipelineProcessMany:
+class TestAXEPipelineExtractList:
     def test_returns_list_of_results(self):
         p, pr, e, pp = _make_mock_components()
         pipeline = AXEPipeline(preprocessor=p, pruner=pr, extractor=e, postprocessor=pp)
         inputs = ["<p>One</p>", "<p>Two</p>", "<p>Three</p>"]
-        results = pipeline.extract_batch_same_query(inputs, query="What?")
+        results = pipeline.extract(inputs, query="What?")
         assert isinstance(results, list)
         assert len(results) == 3
 
     def test_each_result_is_axe_result(self):
         p, pr, e, pp = _make_mock_components()
         pipeline = AXEPipeline(preprocessor=p, pruner=pr, extractor=e, postprocessor=pp)
-        results = pipeline.extract_batch_same_query(["<p>A</p>", "<p>B</p>"], query="q?")
+        results = pipeline.extract(["<p>A</p>", "<p>B</p>"], query="q?")
         for r in results:
             assert isinstance(r, AXEResult)
 
     def test_same_query_applied_to_all(self):
         p, pr, e, pp = _make_mock_components()
         pipeline = AXEPipeline(preprocessor=p, pruner=pr, extractor=e, postprocessor=pp)
-        results = pipeline.extract_batch_same_query(["<p>A</p>", "<p>B</p>"], query="shared?")
+        results = pipeline.extract(["<p>A</p>", "<p>B</p>"], query="shared?")
         # All should succeed
         for r in results:
             assert r.status == Status.SUCCESS

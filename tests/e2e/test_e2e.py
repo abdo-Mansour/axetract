@@ -169,22 +169,22 @@ class TestE2EProcessWithSchema:
 # ===========================================================================
 
 
-class TestE2EExtractBatchSameQuery:
+class TestE2EExtractList:
     def test_correct_number_of_results(self):
         pipeline = _make_pipeline()
         docs = [PRODUCT_HTML, "<p>Another page</p>", "<div>Third</div>"]
-        results = pipeline.extract_batch_same_query(docs, query="extract info")
+        results = pipeline.extract(docs, query="extract info")
         assert len(results) == 3
 
     def test_all_results_are_axe_results(self):
         pipeline = _make_pipeline()
-        results = pipeline.extract_batch_same_query([PRODUCT_HTML, "<p>B</p>"], query="What is the title?")
+        results = pipeline.extract([PRODUCT_HTML, "<p>B</p>"], query="What is the title?")
         for r in results:
             assert isinstance(r, AXEResult)
 
     def test_all_results_are_success(self):
         pipeline = _make_pipeline()
-        results = pipeline.extract_batch_same_query([PRODUCT_HTML, "<p>B</p>"], query="q?")
+        results = pipeline.extract([PRODUCT_HTML, "<p>B</p>"], query="q?")
         for r in results:
             assert r.status == Status.SUCCESS
 

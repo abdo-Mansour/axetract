@@ -2,7 +2,6 @@
 
 from axetract.utils.html_util import extract_visible_xpaths_leaves, find_closest_html_node
 
-
 # ===========================================================================
 # extract_visible_xpaths_leaves
 # ===========================================================================

@@ -3,7 +3,7 @@ from __future__ import annotations
 import multiprocessing as mp
 import traceback
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from axetract.data_types import AXEChunk, AXESample
 from axetract.preprocessor.base_preprocessor import BasePreprocessor

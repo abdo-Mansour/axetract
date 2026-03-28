@@ -1,7 +1,9 @@
 import logging
 import os
 import sys
+
 from dotenv import load_dotenv
+
 # 1. Load env file
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 

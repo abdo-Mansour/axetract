@@ -1,6 +1,5 @@
 """Unit tests for AXEPostprocessor and its top-level worker functions."""
 
-from unittest.mock import MagicMock, patch
 
 from axetract.data_types import AXESample, Status
 from axetract.postprocessor.axe_postprocessor import (

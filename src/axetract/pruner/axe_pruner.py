@@ -244,7 +244,7 @@ class AXEPruner(BasePruner):
 
             # Phase 3: Parse LLM Responses (light CPU work)
             # Pre-compiled regex for index list extraction
-            _INDEX_LIST_RE = re.compile(r"\[(.*?)\]", re.DOTALL)
+            index_list_re = re.compile(r"\[(.*?)\]", re.DOTALL)
             final_pruned_contents = []
 
             for i, (response, row_xpaths) in enumerate(zip(llm_results, all_rows_xpaths)):
@@ -253,7 +253,7 @@ class AXEPruner(BasePruner):
                     final_pruned_contents.append(row_xpaths)
                     continue
 
-                match = _INDEX_LIST_RE.search(response)
+                match = index_list_re.search(response)
                 chosen = []
                 if match:
                     inside = "[" + match.group(1).strip() + "]"

@@ -37,7 +37,7 @@ class LiteLLMClient(BaseClient):
             raise ImportError("litellm is not installed. Install with 'pip install litellm'")
         super().__init__(config)
 
-        self.model_name = config.get("model_name", "gpt-3.5-turbo")
+        self.model_name = config.get("model_name")
         self.api_key = config.get("api_key") or os.environ.get("OPENAI_API_KEY")
         self.api_base = config.get("api_base")
         self.custom_llm_provider = config.get("custom_llm_provider")

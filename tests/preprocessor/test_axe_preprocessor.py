@@ -8,7 +8,6 @@ from unittest.mock import MagicMock, patch
 from axetract.data_types import AXESample
 from axetract.preprocessor.axe_preprocessor import AXEPreprocessor, _chunk_worker
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

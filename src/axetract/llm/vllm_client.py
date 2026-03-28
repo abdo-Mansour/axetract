@@ -95,7 +95,7 @@ class LocalVLLMClient(BaseClient):
             top_p=params["top_p"],
             max_tokens=params["max_tokens"],
             stop=params["stop"],
-            # truncate_prompt_tokens=safe_truncate_len,
+            truncate_prompt_tokens=safe_truncate_len,
         )
 
     def call_batch(

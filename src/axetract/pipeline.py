@@ -145,15 +145,15 @@ class AXEPipeline:
                 },
                 "lora_modules": {
                     "pruner": {
-                        "path": "abdo-Mansour/AXE-Pruner-Adaptor-Qwen3-0.6b",
+                        "path": "abdo-Mansour/AXE-Pruner-Adapter-Qwen3-0.6b",
                         "temperature": 0.0,
                     },
                     "qa": {
-                        "path": "abdo-Mansour/AXE-QA-Adaptor-Qwen3-0.6b",
+                        "path": "abdo-Mansour/AXE-QA-Adapter-Qwen3-0.6b",
                         "temperature": 1.0,
                     },
                     "schema": {
-                        "path": "abdo-Mansour/AXE-Extractor-Adaptor-Qwen3-0.6b",
+                        "path": "abdo-Mansour/AXE-Extractor-Adapter-Qwen3-0.6b",
                         "temperature": 0.0,
                     },
                 },

@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/logo.png" alt="Axetract Logo" width="200">
+  <img src="assets/logo-black-mode.svg" alt="AXEtract Logo" width="120" style="margin-bottom: 1rem;">
 </p>
 
-# Axetract
+# AXEtract
 
 **High-performance, LoRA-powered web data extraction. Based on the Paper [AXE: Low-Cost Cross-Domain Web Structured Information Extraction](https://arxiv.org/abs/2602.01838)**
 
@@ -47,15 +47,19 @@ Traditional web extractors are often a trade-off between brittle manual heuristi
 ## Quick Start
 
 ```python
+from pydantic import BaseModel
 from axetract import AXEPipeline
 
-# Create a pipeline with default LoRA adapters
+class Product(BaseModel):
+    name: str
+    price: float
+    currency: str
+
 pipeline = AXEPipeline.from_config()
 
-# Extract data from a URL
-result = pipeline.process(
+result = pipeline.extract(
     input_data="https://example.com/product",
-    query="Extract the product name, price, and currency"
+    schema=Product,
 )
 
 print(result.prediction)

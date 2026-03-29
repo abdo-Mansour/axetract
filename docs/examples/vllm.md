@@ -19,7 +19,7 @@ pipeline = AXEPipeline.from_config(use_vllm=True)
 
 # Inference remains the same, but benefits from vLLM's 
 # continuous batching and efficient LoRA swapping.
-result = pipeline.process(
+result = pipeline.extract(
     "https://example.com",
     query="Extract the main headline"
 )

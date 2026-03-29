@@ -16,10 +16,12 @@ url = "https://example.com/products/smartphone-x"
 query = "What is the price, model name, and color of the device?"
 
 # Run the pipeline
-result = pipeline.process(input_data=url, query=query)
+result = pipeline.extract(input_data=url, query=query)
 
 # Check the results
-if result.status == "SUCCESS":
+from axetract.data_types import Status
+
+if result.status == Status.SUCCESS:
     print("Extracted Data:", result.prediction)
     print("Source XPaths:", result.xpaths)
 else:

@@ -29,7 +29,7 @@ from axetract import AXEPipeline
 
 pipeline = AXEPipeline.from_config()
 
-result = pipeline.process(
+result = pipeline.extract(
     "https://news.ycombinator.com",
     query="List the top 5 articles with their titles and points"
 )
@@ -54,7 +54,7 @@ class Product(BaseModel):
 
 pipeline = AXEPipeline.from_config()
 
-result = pipeline.process(
+result = pipeline.extract(
     "https://example.com/item",
     schema=Product
 )

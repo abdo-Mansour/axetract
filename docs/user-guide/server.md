@@ -11,7 +11,7 @@ The server is located in the `axe_server` directory.
 Ensure you have the required dependencies:
 
 ```bash
-pip install fastapi uvicorn
+uv add fastapi uvicorn
 ```
 
 ### 2. Launching

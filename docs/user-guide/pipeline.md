@@ -1,57 +1,120 @@
 # The Pipeline
 
-The `AXEPipeline` is the main entry point for Axetract.
+The `AXEPipeline` is the main entry point for AXEtract.
 
 ## Configuration
 
-You can create a pipeline using the `from_config` factory method, which sets up the default adapters.
+Use the `from_config` factory method to create a ready-to-run pipeline with default LoRA adapters.
 
 ```python
 from axetract import AXEPipeline
 
-# Default configuration (Hugging Face)
+# Default: HuggingFace local inference
 pipeline = AXEPipeline.from_config()
 
-# High-throughput configuration (vLLM)
-pipeline_vllm = AXEPipeline.from_config(use_vllm=True)
+# High-throughput: vLLM serving
+pipeline = AXEPipeline.from_config(use_vllm=True)
 ```
 
 ## Processing Methods
 
-### `process`
-Processes a single input.
+### `extract`
+
+The primary method. Accepts a **single** input or a **list** of inputs — URLs, raw HTML strings, or `Path` objects pointing to `.html`/`.htm` files.
 
 ```python
-result = pipeline.process(input_data="<html>...</html>", query="...")
-```
+from pydantic import BaseModel
+from axetract import AXEPipeline
 
-### `process_many`
-Processes a list of inputs using the **same** query/schema.
+class Product(BaseModel):
+    name: str
+    price: float
 
-```python
-results = pipeline.process_many(
-    inputs=["url1", "url2", "url3"],
-    query="Extract prices"
+pipeline = AXEPipeline.from_config()
+
+# --- Single input, natural language query ---
+result = pipeline.extract(
+    input_data="https://example.com/item",
+    query="Extract the product name and price",
+)
+
+# --- Single input, typed schema ---
+result = pipeline.extract(
+    input_data="https://example.com/item",
+    schema=Product,
+)
+
+# --- Multiple inputs, same query/schema ---
+results = pipeline.extract(
+    input_data=[
+        "https://example.com/item1",
+        "https://example.com/item2",
+    ],
+    schema=Product,
 )
 ```
 
-### `process_batch`
-Processes a heterogenous batch of `AXESample` objects.
+### `extract_batch`
+
+For heterogeneous batches where each item has its own query or schema, pass a list of `AXESample` objects.
 
 ```python
+import uuid
+from axetract import AXEPipeline
 from axetract.data_types import AXESample
+from pydantic import BaseModel
+
+class Product(BaseModel):
+    name: str
+    price: float
+
+pipeline = AXEPipeline.from_config()
 
 batch = [
-    AXESample(content="...", query="..."),
-    AXESample(content="...", schema_model=MySchema)
+    AXESample(
+        id=str(uuid.uuid4()),
+        content="https://site-a.com/article",
+        is_content_url=True,
+        query="Get the article abstract",
+    ),
+    AXESample(
+        id=str(uuid.uuid4()),
+        content="https://site-b.com/product",
+        is_content_url=True,
+        schema_model=Product,
+    ),
 ]
-results = pipeline.process_batch(batch)
+
+results = pipeline.extract_batch(batch)
 ```
+
+## Execution Strategy
+
+Execution mode is chosen automatically based on batch size:
+
+| Batch size | Mode | Description |
+|---|---|---|
+| ≤ `micro_batch_size` (default: 4) | **Sequential** | Simple loop — preprocess → prune → extract → postprocess |
+| > `micro_batch_size` | **Pipelined** | Concurrent threads with bounded queues for CPU/GPU overlap |
 
 ## The `AXEResult` Object
 
-Every processing method returns `AXEResult` objects containing:
-- `prediction`: The actual extracted data (dict).
-- `xpaths`: A mapping of extracted fields to their source XPaths.
-- `status`: Execution status (SUCCESS, FAILURE, etc.).
-- `error`: Error message if status is not SUCCESS.
+| Field | Type | Description |
+|---|---|---|
+| `id` | `str` | Sample identifier |
+| `prediction` | `dict` | Extracted structured data |
+| `xpaths` | `dict \| None` | Field → source XPath mapping |
+| `status` | `Status` | `Status.SUCCESS`, `Status.FAILED`, or `Status.PENDING` |
+| `error` | `str \| None` | Error message if status is not `SUCCESS` |
+
+```python
+from axetract.data_types import Status
+
+result = pipeline.extract("https://example.com", query="Get the price")
+
+if result.status == Status.SUCCESS:
+    print(result.prediction)
+    print(result.xpaths)
+else:
+    print(result.error)
+```

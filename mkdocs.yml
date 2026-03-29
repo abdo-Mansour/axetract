@@ -1,27 +1,32 @@
-site_name: Axetract
-site_description: High-performance, LoRA-powered web data extraction.
+site_name: AXEtract
+site_description: Low-Cost Cross-Domain Web Structured Information Extraction using specialized LoRA adapters.
 site_url: https://abdo-mansour.github.io/axetract/
 
 theme:
   name: material
+  logo: assets/logo-black-mode.svg
+  favicon: assets/logo-black-mode.svg
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      primary: teal
-      accent: indigo
+      primary: deep orange
+      accent: orange
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      primary: teal
-      accent: indigo
+      primary: deep orange
+      accent: orange
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
   features:
+    - navigation.tabs
+    - navigation.tabs.sticky
     - navigation.sections
     - navigation.top
+    - navigation.instant
     - search.suggest
     - search.highlight
     - content.code.copy
@@ -42,7 +47,6 @@ nav:
     - Pipeline: api/pipeline.md
     - Data Types: api/data_types.md
     - LLM Clients: api/llm.md
-    - Utilities: api/utils.md
     - Components:
       - Preprocessor: api/components/preprocessor.md
       - Pruner: api/components/pruner.md
@@ -54,6 +58,9 @@ nav:
     - vLLM Serving: examples/vllm.md
   - Contributing: contributing.md
   - FAQ: faq.md
+
+extra_css:
+  - stylesheets/extra.css
 
 plugins:
   - search

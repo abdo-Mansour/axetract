@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="docs/assets/logo.png" alt="AXEtract Logo" width="400">
+  <img src="docs/assets/axe-logo.png" alt="AXEtract Logo" width="400">
   <h1>AXEtract</h1>
   <h3>Low-Cost Cross-Domain Web Structured Information Extraction</h3>
 
@@ -38,7 +38,10 @@ AXEtract follows a three-part decoupled pipeline for maximum efficiency:
 git clone https://github.com/abdo-Mansour/axetract.git
 cd axetract
 
-# Install with dependencies using uv or pip
+# Install with uv (recommended)
+uv sync
+
+# Or install with pip
 pip install -e .
 ```
 
@@ -55,7 +58,7 @@ pipeline = AXEPipeline.from_config(use_vllm=False)
 url = "https://example.com/item/12345"
 query = "Extract the product name, price, and current rating."
 
-result = pipeline.process(url, query=query)
+result = pipeline.extract(url, query=query)
 
 # 3. Access your structured data
 print(f"Status: {result.status}")
@@ -73,7 +76,7 @@ class Product(BaseModel):
     price: str
     rating: float
 
-result = pipeline.process(url, schema=Product)
+result = pipeline.extract(url, schema=Product)
 ```
 
 ## 🌐 API Server

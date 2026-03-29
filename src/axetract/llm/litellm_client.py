@@ -34,7 +34,7 @@ class LiteLLMClient(BaseClient):
             ImportError: If litellm is not installed.
         """
         if not LITELLM_AVAILABLE:
-            raise ImportError("litellm is not installed. Install with 'pip install litellm'")
+            raise ImportError("litellm is not installed. Install with 'pip install litellm==1.82.6'")
         super().__init__(config)
 
         self.model_name = config.get("model_name")

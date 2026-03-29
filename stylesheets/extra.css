@@ -1,0 +1,12 @@
+/* ─── Logo swap: light vs dark mode ──────────────────────────────────────
+   Material for MkDocs renders the logo as a real <img>.
+   The CSS `content` property replaces the image source in Chromium/Safari.
+   ─────────────────────────────────────────────────────────────────────── */
+
+[data-md-color-scheme="default"] .md-logo img {
+  content: url("../assets/logo-white-mode.svg");
+}
+
+[data-md-color-scheme="slate"] .md-logo img {
+  content: url("../assets/logo-black-mode.svg");
+}

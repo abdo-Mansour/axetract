@@ -47,7 +47,6 @@ dev = [
     "mkdocs>=1.6.1,<2.0.0",
     "pytest>=8.0.0",
     "mkdocs-material>=9.7.3",
-    "mkdocstrings[python]>=0.18",
     "mkdocs-autoapi[python]",
     "mkdocstrings[python]>=1.0.3",
     "ruff>=0.15.4",

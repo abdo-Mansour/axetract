@@ -39,6 +39,9 @@ Repository = "https://github.com/abdo-Mansour/axetract"
 Documentation = "https://abdo-mansour.github.io/axetract/"
 "Issue Tracker" = "https://github.com/abdo-Mansour/axetract/issues"
 
+[project.scripts]
+axe-server = "axetract.server:main"
+
 [dependency-groups]
 dev = [
     "mkdocs>=1.6.1,<2.0.0",

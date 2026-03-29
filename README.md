@@ -1,5 +1,6 @@
 <div align="center">
-  <img src="docs/assets/axe-logo.png" alt="AXEtract Logo" width="400">
+  <img src="docs/assets/logo-white-mode.svg#gh-dark-mode-only" alt="AXEtract Logo" width="400">
+  <img src="docs/assets/logo-black-mode.svg#gh-light-mode-only" alt="AXEtract Logo" width="400">
   <h1>AXEtract</h1>
   <h3>Low-Cost Cross-Domain Web Structured Information Extraction</h3>
 
@@ -34,73 +35,79 @@ AXEtract follows a three-part decoupled pipeline for maximum efficiency:
 ## 📦 Installation
 
 ```bash
-# Clone the repository
+# Install from PyPI
+uv pip install axetract
+
+# Or install from source
 git clone https://github.com/abdo-Mansour/axetract.git
 cd axetract
-
-# Install with uv (recommended)
 uv sync
-
-# Or install with pip
-pip install -e .
 ```
 
 ## 🚥 Quick Start
 
 ```python
+from pydantic import BaseModel
 from axetract.pipeline import AXEPipeline
 
 # 1. Initialize the pipeline with default LoRA adapters
 # (Automatically downloads adapters from HuggingFace Hub)
 pipeline = AXEPipeline.from_config(use_vllm=False)
 
-# 2. Extract from a URL or raw HTML
-url = "https://example.com/item/12345"
-query = "Extract the product name, price, and current rating."
-
-result = pipeline.extract(url, query=query)
-
-# 3. Access your structured data
-print(f"Status: {result.status}")
-print(f"Prediction: {result.prediction}")
-print(f"Source XPaths: {result.xpaths}")
-```
-
-### Using a Pydantic Schema
-
-```python
-from pydantic import BaseModel
-
+# 2. Define your desired extraction schema
 class Product(BaseModel):
     name: str
     price: str
     rating: float
 
+# 3. Extract from a URL or raw HTML
+url = "https://example.com/item/12345"
 result = pipeline.extract(url, schema=Product)
+
+# 4. Access your structured data
+print(f"Status: {result.status}")
+print(f"Prediction: {result.prediction}")
+print(f"Source XPaths: {result.xpaths}")
 ```
 
 ## 🌐 API Server
 
-AXEtract includes a built-in FastAPI server for high-throughput serving:
+AXEtract includes a built-in FastAPI server for high-throughput serving. After installing the package, start it with the installed CLI entry point:
 
 ```bash
-# Start the server (on port 8000 by default)
-cd axe_server
-python main.py
+axe-server
 ```
 
-Check the `axe_server/client_example.py` for examples of interacting with the API via `requests`.
+Or via `python -m` for development installs:
+
+```bash
+python -m axetract.server
+```
+
+Configuration is done via environment variables:
+
+| Variable | Default | Description |
+|---|---|---|
+| `AXE_USE_VLLM` | `false` | Set to `true` to use vLLM backend |
+| `AXE_PORT` | `8000` | Port to listen on |
+| `AXE_HOST` | `0.0.0.0` | Host to bind to |
+| `AXE_LOG_FILE` | _(stderr)_ | Optional path to a log file |
+
+See `axe_server/client_example.py` for examples of interacting with the API via `requests`.
 
 ## 📝 Citation
 
 If you use AXEtract in your research, please cite our paper:
 
 ```bibtex
-@article{mansour2026axe,
-  title={AXE: Low-Cost Cross-Domain Web Structured Information Extraction},
-  author={Abdelrahman Mansour and Khaled W. Alshaer and Motaz El-Saban},
-  journal={arXiv preprint},
-  year={2026}
+@misc{mansour2026axe,
+      title={AXE: Low-Cost Cross-Domain Web Structured Information Extraction}, 
+      author={Abdelrahman Mansour and Khaled W. Alshaer and Moataz Elsaban},
+      year={2026},
+      eprint={2602.01838},
+      archivePrefix={arXiv},
+      primaryClass={cs.CL},
+      url={https://arxiv.org/abs/2602.01838}, 
 }
 ```
 

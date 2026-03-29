@@ -371,7 +371,6 @@ dev = [
     { name = "mkdocs", specifier = ">=1.6.1,<2.0.0" },
     { name = "mkdocs-autoapi", extras = ["python"] },
     { name = "mkdocs-material", specifier = ">=9.7.3" },
-    { name = "mkdocstrings", extras = ["python"], specifier = ">=0.18" },
     { name = "mkdocstrings", extras = ["python"], specifier = ">=1.0.3" },
     { name = "notebook", specifier = ">=7.5.4" },
     { name = "pytest", specifier = ">=8.0.0" },

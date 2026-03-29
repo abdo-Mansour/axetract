@@ -2,10 +2,7 @@ from axetract import AXEPipeline
 
 
 def main():
-    '''
-    This is a simple example of how to use the AXEtract pipeline.
-    
-    '''
+    """This is a simple example of how to use the AXEtract pipeline."""
     pipeline = AXEPipeline.from_config()
 
     result = pipeline.extract(

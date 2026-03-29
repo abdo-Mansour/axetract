@@ -1,13 +1,23 @@
 <div align="center">
-  <img src="docs/assets/logo-white-mode.svg#gh-light-mode-only" alt="AXEtract Logo" width="400">
-  <img src="docs/assets/logo-black-mode.svg#gh-dark-mode-only" alt="AXEtract Logo" width="400">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/abdo-Mansour/axetract/main/docs/assets/logo-black-mode.svg">
+    <img alt="AXEtract Logo" src="https://raw.githubusercontent.com/abdo-Mansour/axetract/main/docs/assets/logo-white-mode.svg" width="400">
+  </picture>
+
   <h1>AXEtract</h1>
-  <h3>Low-Cost Cross-Domain Web Structured Information Extraction</h3>
+  <p>Low-Cost Cross-Domain Web Structured Information Extraction</p>
 
-[!\[Documentation\](https://img.shields.io/badge/docs-latest-teal null)](https://abdo-mansour.github.io/axetract/)
-[!\[License: MIT\](https://img.shields.io/badge/License-MIT-yellow.svg null)](https://opensource.org/licenses/MIT)
-[!\[GitHub\](https://img.shields.io/github/stars/abdo-Mansour/axetract?style=social null)](https://github.com/abdo-Mansour/axetract)
-
+  <p align="center">
+    <a href="https://abdo-mansour.github.io/axetract/">
+      <img src="https://img.shields.io/badge/docs-latest-teal" alt="Documentation">
+    </a>
+    <a href="https://opensource.org/licenses/MIT">
+      <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT">
+    </a>
+    <a href="https://github.com/abdo-Mansour/axetract">
+      <img src="https://img.shields.io/github/stars/abdo-Mansour/axetract?style=social" alt="GitHub">
+    </a>
+  </p>
 </div>
 
 ***

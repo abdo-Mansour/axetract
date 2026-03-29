@@ -1,6 +1,6 @@
 <div align="center">
-  <img src="docs/assets/logo-white-mode.svg#gh-dark-mode-only" alt="AXEtract Logo" width="400">
-  <img src="docs/assets/logo-black-mode.svg#gh-light-mode-only" alt="AXEtract Logo" width="400">
+  <img src="docs/assets/logo-white-mode.svg#gh-light-mode-only" alt="AXEtract Logo" width="400">
+  <img src="docs/assets/logo-black-mode.svg#gh-dark-mode-only" alt="AXEtract Logo" width="400">
   <h1>AXEtract</h1>
   <h3>Low-Cost Cross-Domain Web Structured Information Extraction</h3>
 

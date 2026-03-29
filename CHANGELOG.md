@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Documentation now correctly references `extract()` and `extract_batch()` instead of non-existent `process_many()` and `process_batch()`
 
-## [0.1.0] - 2026-03-04
+## [0.1.0] - 2026-03-29
 
 ### Added
 - Initial release of AXEtract.
@@ -38,3 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pre-commit hooks for automated code quality.
 - Custom exception hierarchy for graceful error handling.
 - Optimized dependencies with optional `vllm` extra.
+- Integrated `axe-server` CLI entry point natively in `pyproject.toml` scripts.
+- Configured dynamic package versioning via `importlib.metadata` within the root package.
+
+### Changed
+- Shifted all README and repository documentation examples to firmly rely on Pydantic schemas over legacy string-based extraction queries.
+- Modified repository fallback installation instructions across docs to accurately represent `uv pip` usages.
+- Improved documentation UI branding with dynamic dual-mode SVGs supporting standard GitHub Markdown attributes (`#gh-dark-mode-only`).

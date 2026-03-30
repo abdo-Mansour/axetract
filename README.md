@@ -22,7 +22,7 @@
 
 ***
 
-**AXEtract** is a high-performance, low-cost framework for extracting structured data from web pages. Based on the paper **"AXE: Low-Cost Cross-Domain Web Structured Information Extraction"**, it optimizes the extraction pipeline by using specialized LoRA adapters for pruning and query-specific extraction, enabling state-of-the-art results with small models (e.g., Qwen3-0.6B).
+**AXEtract** is a high-performance, low-cost framework for extracting structured data from web pages. Based on the paper [**"AXE: Low-Cost Cross-Domain Web Structured Information Extraction"**](https://www.arxiv.org/abs/2602.01838), it optimizes the extraction pipeline by using specialized LoRA adapters for pruning and query-specific extraction, enabling state-of-the-art results with small models (e.g., Qwen3-0.6B).
 
 ## 🚀 Key Features
 

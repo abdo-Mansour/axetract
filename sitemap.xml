@@ -2,74 +2,74 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://abdo-mansour.github.io/axetract/</loc>
-         <lastmod>2026-03-29</lastmod>
+         <lastmod>2026-03-30</lastmod>
     </url>
     <url>
          <loc>https://abdo-mansour.github.io/axetract/contributing/</loc>
-         <lastmod>2026-03-29</lastmod>
+         <lastmod>2026-03-30</lastmod>
     </url>
     <url>
          <loc>https://abdo-mansour.github.io/axetract/faq/</loc>
-         <lastmod>2026-03-29</lastmod>
+         <lastmod>2026-03-30</lastmod>
     </url>
     <url>
          <loc>https://abdo-mansour.github.io/axetract/getting-started/</loc>
-         <lastmod>2026-03-29</lastmod>
+         <lastmod>2026-03-30</lastmod>
     </url>
     <url>
          <loc>https://abdo-mansour.github.io/axetract/api/data_types/</loc>
-         <lastmod>2026-03-29</lastmod>
+         <lastmod>2026-03-30</lastmod>
     </url>
     <url>
          <loc>https://abdo-mansour.github.io/axetract/api/llm/</loc>
-         <lastmod>2026-03-29</lastmod>
+         <lastmod>2026-03-30</lastmod>
     </url>
     <url>
          <loc>https://abdo-mansour.github.io/axetract/api/pipeline/</loc>
-         <lastmod>2026-03-29</lastmod>
+         <lastmod>2026-03-30</lastmod>
     </url>
     <url>
          <loc>https://abdo-mansour.github.io/axetract/api/components/extractor/</loc>
-         <lastmod>2026-03-29</lastmod>
+         <lastmod>2026-03-30</lastmod>
     </url>
     <url>
          <loc>https://abdo-mansour.github.io/axetract/api/components/postprocessor/</loc>
-         <lastmod>2026-03-29</lastmod>
+         <lastmod>2026-03-30</lastmod>
     </url>
     <url>
          <loc>https://abdo-mansour.github.io/axetract/api/components/preprocessor/</loc>
-         <lastmod>2026-03-29</lastmod>
+         <lastmod>2026-03-30</lastmod>
     </url>
     <url>
          <loc>https://abdo-mansour.github.io/axetract/api/components/pruner/</loc>
-         <lastmod>2026-03-29</lastmod>
+         <lastmod>2026-03-30</lastmod>
     </url>
     <url>
          <loc>https://abdo-mansour.github.io/axetract/examples/basic/</loc>
-         <lastmod>2026-03-29</lastmod>
+         <lastmod>2026-03-30</lastmod>
     </url>
     <url>
          <loc>https://abdo-mansour.github.io/axetract/examples/batch/</loc>
-         <lastmod>2026-03-29</lastmod>
+         <lastmod>2026-03-30</lastmod>
     </url>
     <url>
          <loc>https://abdo-mansour.github.io/axetract/examples/vllm/</loc>
-         <lastmod>2026-03-29</lastmod>
+         <lastmod>2026-03-30</lastmod>
     </url>
     <url>
          <loc>https://abdo-mansour.github.io/axetract/user-guide/architecture/</loc>
-         <lastmod>2026-03-29</lastmod>
+         <lastmod>2026-03-30</lastmod>
     </url>
     <url>
          <loc>https://abdo-mansour.github.io/axetract/user-guide/components/</loc>
-         <lastmod>2026-03-29</lastmod>
+         <lastmod>2026-03-30</lastmod>
     </url>
     <url>
          <loc>https://abdo-mansour.github.io/axetract/user-guide/pipeline/</loc>
-         <lastmod>2026-03-29</lastmod>
+         <lastmod>2026-03-30</lastmod>
     </url>
     <url>
          <loc>https://abdo-mansour.github.io/axetract/user-guide/server/</loc>
-         <lastmod>2026-03-29</lastmod>
+         <lastmod>2026-03-30</lastmod>
     </url>
 </urlset>

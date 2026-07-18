@@ -139,6 +139,16 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="Generate matplotlib plots (requires matplotlib).",
     )
     parser.add_argument(
+        "--html",
+        action="store_true",
+        help="Generate a self-contained HTML report (no extra dependencies).",
+    )
+    parser.add_argument(
+        "--pgf",
+        action="store_true",
+        help="Also export HTML report charts as PGF files (requires matplotlib + LaTeX).",
+    )
+    parser.add_argument(
         "--profile",
         action="store_true",
         help="Dump cProfile stats (for deep-dive profiling).",
@@ -309,6 +319,18 @@ def main(argv: Optional[List[str]] = None) -> int:
         if plot_paths:
             logger.info("Plots written to %s", plot_dir)
 
+    # ── HTML report ──
+    html_path: Optional[Path] = None
+    if args.html:
+        from benchmarks.html_report import build_report
+
+        html_path = out_dir / f"{base_name}.html"
+        pgf_dir = (out_dir / f"{base_name}_pgf") if args.pgf else None
+        build_report([json_payload], [json_payload.get("timestamp", "")], html_path, pgf_dir=pgf_dir)
+        logger.info("HTML report written to %s", html_path)
+        if pgf_dir:
+            logger.info("PGF charts written to %s", pgf_dir)
+
     # ── Print summary to console ──
     print("\n" + "=" * 70)
     print("BENCHMARK COMPLETE")
@@ -316,6 +338,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     print(to_markdown_full(all_metrics, config_labels))
     print(f"\nResults: {json_path}")
     print(f"Report:  {md_path}")
+    if html_path:
+        print(f"HTML:    {html_path}")
+        if args.pgf:
+            print(f"PGF:     {out_dir / (base_name + '_pgf')}/")
 
     return 0
 

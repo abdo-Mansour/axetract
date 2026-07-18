@@ -7,3 +7,5 @@ site
 ignore/
 *.log
 .vscode/settings.json
+.continue/*
+benchmarks/results/

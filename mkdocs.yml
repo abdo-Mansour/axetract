@@ -56,6 +56,7 @@ nav:
     - Basic Extraction: examples/basic.md
     - Batch Processing: examples/batch.md
     - vLLM Serving: examples/vllm.md
+    - Benchmarking: examples/benchmark.md
   - Contributing: contributing.md
   - FAQ: faq.md
 

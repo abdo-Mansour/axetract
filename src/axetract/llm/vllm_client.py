@@ -87,15 +87,22 @@ class LocalVLLMClient(BaseClient):
             params.update(self.adapter_defaults[adapter_name])
         params.update({k: v for k, v in kwargs.items() if v is not None})
 
-        safe_truncate_len = max(
-            self.context_window_size - params["max_tokens"] - 1, self.context_window_size // 2
-        )
         return SamplingParams(
             temperature=params["temperature"],
             top_p=params["top_p"],
             max_tokens=params["max_tokens"],
             stop=params["stop"],
-            truncate_prompt_tokens=safe_truncate_len,
+        )
+
+    def _truncate_prompt_tokens(self) -> int:
+        """Compute a safe prompt truncation length.
+
+        Note: In vLLM >= 0.5, prompt truncation is no longer a ``SamplingParams``
+        field. It is now passed to ``LLM.generate`` via ``tokenization_kwargs``.
+        """
+        return max(
+            self.context_window_size - self.max_tokens - 1,
+            self.context_window_size // 2,
         )
 
     def call_batch(
@@ -115,9 +122,15 @@ class LocalVLLMClient(BaseClient):
         sampling_params = self._create_sampling_params(adapter_name=adapter_name, **kwargs)
         prompts = [format_prompt_with_thinking(p, self.enable_thinking, thinking) for p in prompts]
         lora_req = self.lora_requests.get(adapter_name) if adapter_name else None
+        tokenization_kwargs = {"truncate_prompt_tokens": self._truncate_prompt_tokens()}
 
         with self._generate_lock:  # Protect engine state
-            outputs = self.llm.generate(prompts, sampling_params, lora_request=lora_req)
+            outputs = self.llm.generate(
+                prompts,
+                sampling_params,
+                lora_request=lora_req,
+                tokenization_kwargs=tokenization_kwargs,
+            )
         return [out.outputs[0].text for out in outputs]
 
     def call_api(self, prompt: str, adapter_name: str = None, thinking=False, **kwargs) -> str:

@@ -4,9 +4,10 @@ import gc
 import logging
 import queue
 import threading
+import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Type, Union, overload
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union, overload
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,7 @@ class AXEPipeline:
         extractor: BaseExtractor,
         postprocessor: BasePostprocessor,
         micro_batch_size: int = 4,
+        on_stage: Optional[Callable[[str, str, Optional[int], float], None]] = None,
     ):
         """Initialize the pipeline with its core components.
 
@@ -62,12 +64,34 @@ class AXEPipeline:
             postprocessor (BasePostprocessor): Component for JSON repair and grounding.
             micro_batch_size (int): Micro-batch size for pipelined execution.
                 Controls the granularity of CPU/GPU overlap. Default 4.
+            on_stage (Optional[Callable]): Benchmarking hook invoked as
+                ``on_stage(stage, event, mb_index, timestamp)`` where ``stage``
+                is one of ``"preprocess"``, ``"prune"``, ``"extract"``,
+                ``"postprocess"``; ``event`` is ``"enter"`` or ``"exit"``;
+                ``mb_index`` is the micro-batch index (``None`` for sequential);
+                and ``timestamp`` is ``time.perf_counter()``. No-op if ``None``.
         """
         self._preprocessor = preprocessor
         self._pruner = pruner
         self._extractor = extractor
         self._postprocessor = postprocessor
         self._micro_batch_size = micro_batch_size
+        self._on_stage = on_stage
+
+    def _emit_stage(
+        self, stage: str, event: str, mb_index: Optional[int]
+    ) -> None:
+        """Emit a stage timing event to the ``on_stage`` callback if registered.
+
+        Args:
+            stage (str): One of ``"preprocess"``, ``"prune"``, ``"extract"``,
+                ``"postprocess"``.
+            event (str): ``"enter"`` or ``"exit"``.
+            mb_index (Optional[int]): Micro-batch index, or ``None`` for the
+                sequential path.
+        """
+        if self._on_stage is not None:
+            self._on_stage(stage, event, mb_index, time.perf_counter())
 
     @staticmethod
     def _free_gpu_cache():
@@ -189,7 +213,7 @@ class AXEPipeline:
         self,
         input_data: Union[str, Path],
         query: Optional[str] = None,
-        schema: Optional[Union[Type[BaseModel], str, Dict[str, Any]]] = None,
+        schema: Optional[Union[type[BaseModel], str, Dict[str, Any]]] = None,
     ) -> AXEResult: ...
 
     @overload
@@ -197,14 +221,14 @@ class AXEPipeline:
         self,
         input_data: List[Union[str, Path]],
         query: Optional[str] = None,
-        schema: Optional[Union[Type[BaseModel], str, Dict[str, Any]]] = None,
+        schema: Optional[Union[type[BaseModel], str, Dict[str, Any]]] = None,
     ) -> List[AXEResult]: ...
 
     def extract(
         self,
         input_data: Union[str, Path, List[Union[str, Path]]],
         query: Optional[str] = None,
-        schema: Optional[Union[Type[BaseModel], str, Dict[str, Any]]] = None,
+        schema: Optional[Union[type[BaseModel], str, Dict[str, Any]]] = None,
     ) -> Union[AXEResult, List[AXEResult]]:
         """Extract structured data from input documents.
 
@@ -334,7 +358,9 @@ class AXEPipeline:
 
         # 1. Preprocess (Fetch & Chunk)
         logger.debug("Step 1: Running preprocessor...")
+        self._emit_stage("preprocess", "enter", None)
         batch = self._preprocessor(batch)
+        self._emit_stage("preprocess", "exit", None)
         for i, sample in enumerate(batch):
             chunks = sample.chunks or []
             chunk_summary = [(c.chunkid, len(c.content)) for c in chunks]
@@ -346,7 +372,9 @@ class AXEPipeline:
         # 2. Prune
         if self._pruner:
             logger.debug("Step 2: Running pruner...")
+            self._emit_stage("prune", "enter", None)
             batch = self._pruner(batch)
+            self._emit_stage("prune", "exit", None)
             for i, sample in enumerate(batch):
                 xpaths = sample.xpaths or []
                 logger.debug("  -> Sample %d after pruner: %d xpath(s) -> %s", i, len(xpaths), xpaths)
@@ -354,14 +382,18 @@ class AXEPipeline:
         # 3. Extract
         self._free_gpu_cache()
         logger.debug("Step 3: Running extractor...")
+        self._emit_stage("extract", "enter", None)
         batch = self._extractor(batch)
+        self._emit_stage("extract", "exit", None)
         for i, sample in enumerate(batch):
             logger.debug("  -> Sample %d after extractor: %s", i, sample.prediction)
 
         # 4. Postprocess
         if self._postprocessor:
             logger.debug("Step 4: Running postprocessor...")
+            self._emit_stage("postprocess", "enter", None)
             batch = self._postprocessor(batch)
+            self._emit_stage("postprocess", "exit", None)
             for i, sample in enumerate(batch):
                 logger.debug("  -> Sample %d after postprocessor: %s", i, sample.prediction)
 
@@ -417,7 +449,9 @@ class AXEPipeline:
             for mb_idx, mb in enumerate(micro_batches):
                 try:
                     logger.debug("[Pipeline] Preprocessing micro-batch %d/%d", mb_idx + 1, num_mbs)
+                    self._emit_stage("preprocess", "enter", mb_idx)
                     processed = self._preprocessor(mb)
+                    self._emit_stage("preprocess", "exit", mb_idx)
                     q_preprocessed.put((mb_idx, processed))
                 except Exception as e:
                     logger.error("[Pipeline] Preprocess error on micro-batch %d: %s", mb_idx, e)
@@ -435,7 +469,9 @@ class AXEPipeline:
                 try:
                     if self._pruner:
                         logger.debug("[Pipeline] Pruning micro-batch %d/%d", mb_idx + 1, num_mbs)
+                        self._emit_stage("prune", "enter", mb_idx)
                         mb = self._pruner(mb)
+                        self._emit_stage("prune", "exit", mb_idx)
                 except Exception as e:
                     logger.error("[Pipeline] Pruner error on micro-batch %d: %s", mb_idx, e)
                     errors.append(e)
@@ -451,7 +487,9 @@ class AXEPipeline:
                 mb_idx, mb = item
                 try:
                     logger.debug("[Pipeline] Extracting micro-batch %d/%d", mb_idx + 1, num_mbs)
+                    self._emit_stage("extract", "enter", mb_idx)
                     mb = self._extractor(mb)
+                    self._emit_stage("extract", "exit", mb_idx)
                 except Exception as e:
                     logger.error("[Pipeline] Extractor error on micro-batch %d: %s", mb_idx, e)
                     errors.append(e)
@@ -470,7 +508,9 @@ class AXEPipeline:
                         logger.debug(
                             "[Pipeline] Postprocessing micro-batch %d/%d", mb_idx + 1, num_mbs,
                         )
+                        self._emit_stage("postprocess", "enter", mb_idx)
                         mb = self._postprocessor(mb)
+                        self._emit_stage("postprocess", "exit", mb_idx)
                 except Exception as e:
                     logger.error("[Pipeline] Postprocess error on micro-batch %d: %s", mb_idx, e)
                     errors.append(e)

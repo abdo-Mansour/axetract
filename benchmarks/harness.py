@@ -263,6 +263,50 @@ def _peak_rss_kb() -> int:
     return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
 
 
+def build_batch(samples: List[AXESample], batch_size: int) -> List[AXESample]:
+    """Build an independent batch of *batch_size* samples from *samples*.
+
+    Cycles through the corpus when it is smaller than *batch_size*.  Every
+    returned sample is a **deep copy** with a unique ``id`` so concurrent
+    pipeline stages never mutate the same object (shared references break
+    pipelined execution and corrupt per-sample state).
+
+    Args:
+        samples (List[AXESample]): Source corpus (must be non-empty).
+        batch_size (int): Desired number of samples in the batch.
+
+    Returns:
+        List[AXESample]: Deep-copied samples of length *batch_size*.
+
+    Raises:
+        ValueError: If *samples* is empty or *batch_size* < 1.
+    """
+    if not samples:
+        raise ValueError("Cannot build a batch from an empty corpus.")
+    if batch_size < 1:
+        raise ValueError(f"batch_size must be >= 1, got {batch_size}")
+
+    batch: List[AXESample] = []
+    for i in range(batch_size):
+        src = samples[i % len(samples)]
+        # Deep copy so each slot is an independent pipeline item.
+        cloned = src.model_copy(deep=True)
+        # Keep ids unique and free of '-' so pruner chunkid parsing
+        # (``chunkid.split("-")[0]`` → batch index) is unaffected; the
+        # preprocessor assigns chunk ids from batch position, not sample.id,
+        # but unique ids still help debugging and result attribution.
+        cloned.id = f"{src.id}__{i}"
+        # Ensure mutable stage fields start clean for a fair timed run.
+        cloned.chunks = []
+        cloned.original_html = ""
+        cloned.current_html = ""
+        cloned.prediction = None
+        cloned.xpaths = None
+        cloned.status = Status.PENDING
+        batch.append(cloned)
+    return batch
+
+
 def run_config(
     pipeline: AXEPipeline,
     samples: List[AXESample],
@@ -297,25 +341,34 @@ def run_config(
     if collector is not None:
         pipeline._on_stage = collector
 
-    # Build the batch (cycled to fill batch_size if corpus is smaller).
-    if len(samples) >= batch_size:
-        batch = samples[:batch_size]
-    else:
-        # Cycle to fill the batch.
-        batch = list(samples) * (batch_size // len(samples))
-        remainder = batch_size % len(samples)
-        batch.extend(samples[:remainder])
+    # Template batch (independent deep copies).  Each timed call rebuilds
+    # from this template so prior runs cannot leak mutated HTML/predictions.
+    batch_template = build_batch(samples, batch_size)
 
     # Input token estimate (char/4) — computed once, constant across repeats.
-    input_tokens_total = sum(_estimate_tokens(s.content) for s in batch)
+    input_tokens_total = sum(_estimate_tokens(s.content) for s in batch_template)
+
+    logger.info(
+        "Config start: batch_size=%d micro_batch_size=%d repeats=%d warmup=%d "
+        "corpus=%d (~%d input tokens/batch)",
+        batch_size,
+        pipeline._micro_batch_size,
+        repeats,
+        warmup,
+        len(samples),
+        input_tokens_total,
+    )
 
     # ── Warmup ──
-    warmup_batch = batch[: min(warmup, len(batch))] if warmup > 0 else []
+    warmup_n = min(warmup, batch_size) if warmup > 0 else 0
     warmup_s = 0.0
-    if warmup_batch:
+    if warmup_n:
+        warmup_batch = build_batch(samples, warmup_n)
+        logger.info("Warmup: extracting %d sample(s)...", warmup_n)
         t0 = time.perf_counter()
-        pipeline.extract_batch(list(warmup_batch))
+        pipeline.extract_batch(warmup_batch)
         warmup_s = time.perf_counter() - t0
+        logger.info("Warmup done in %.2fs", warmup_s)
 
     # ── GPU sampler ──
     gpu_sampler = GPUResourceSampler()
@@ -329,9 +382,18 @@ def run_config(
         if collector is not None:
             collector.reset()
 
+        # Fresh copies every repeat — pipeline stages mutate samples in place.
+        batch = build_batch(samples, batch_size)
+
+        logger.info(
+            "Repeat %d/%d: extract_batch(n=%d) starting...",
+            rep + 1,
+            repeats,
+            batch_size,
+        )
         gpu_sampler.start()
         t_start = time.perf_counter()
-        results = pipeline.extract_batch(list(batch))
+        results = pipeline.extract_batch(batch)
         t_end = time.perf_counter()
         gpu_sampler.stop()
 
@@ -349,6 +411,15 @@ def run_config(
             pred_str = str(r.prediction) if r.prediction else ""
             rep_output_tokens += _estimate_tokens(pred_str)
         output_tokens_total += rep_output_tokens
+
+        logger.info(
+            "Repeat %d/%d done in %.2fs (success=%d/%d)",
+            rep + 1,
+            repeats,
+            wall_s,
+            rep_success,
+            len(results),
+        )
 
         per_repeat.append(
             {

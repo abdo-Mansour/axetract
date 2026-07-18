@@ -7,24 +7,39 @@ a **speed-only** benchmark — extraction quality is evaluated separately.
 ## Quick Start
 
 ```bash
-# GPU benchmark with vLLM (default)
+# Always start with a smoke test (1 doc, 1 timed pass)
+python -m benchmarks.run --backend vllm --batch-sizes 1 --repeats 1 --warmup 1 --no-mb-sweep
+
+# Modest default sweep (batch sizes 1,2,4; micro-batch fixed at 4; 3 repeats)
 python -m benchmarks.run --backend vllm --device gpu
 
-# CPU benchmark with HuggingFace
-python -m benchmarks.run --backend hf --device cpu
-
-# Quick smoke test (1 batch size, 1 repeat)
-python -m benchmarks.run --backend vllm --batch-sizes 1 --repeats 1 --warmup 1
+# CPU baseline (keep batch tiny — HF on CPU is slow)
+python -m benchmarks.run --backend hf --device cpu --batch-sizes 1 --repeats 1 --warmup 0 --no-mb-sweep
 
 # With plots (requires matplotlib)
-python -m benchmarks.run --backend vllm --plots
+python -m benchmarks.run --backend vllm --no-mb-sweep --plots
 ```
+
+!!! warning "Why a full sweep can take hours"
+    `basic.py` runs **one** document once. The benchmark multiplies that work:
+
+    - each HTML page is cleaned and split into **many chunks**
+    - the **pruner makes one LLM call per chunk**, then extraction makes another
+    - batch sizes cycle the corpus (2 Amazon pages today → batch 64 is 64 full docs)
+    - every `(batch_size × micro_batch_size × repeats + warmup)` combination re-runs that work
+
+    Old defaults (`batch-sizes 1,4,16,64` × `micro-batch-sizes 1,4,8,16` × 5 repeats)
+    were on the order of **~20k LLM calls**. Prefer smoke tests first; scale up
+    deliberately.
 
 ## Corpus
 
 The benchmark reads HTML files from `data/benchmark/*.html`. Each file becomes
 an `AXESample` with a default extraction query. Add your own `.html` files to
 this directory to expand the corpus — the harness handles any number of files.
+
+When the corpus is smaller than a requested batch size, samples are **cycled
+as independent deep copies** (not shared object references).
 
 ```bash
 data/benchmark/
@@ -39,11 +54,11 @@ data/benchmark/
 |---|---|---|
 | `--backend` | `vllm` | LLM backend: `vllm` or `hf` |
 | `--device` | `gpu` | Device: `cpu` or `gpu` (CPU forces HF backend) |
-| `--batch-sizes` | `1,4,16,64` | Comma-separated input batch sizes to sweep |
-| `--micro-batch-sizes` | `1,4,8,16` | Comma-separated micro-batch sizes to sweep |
-| `--no-mb-sweep` | off | Fix micro-batch size at 4 instead of sweeping |
-| `--repeats` | `5` | Timed repetitions per config (for p50/p90/p99) |
-| `--warmup` | `3` | Warmup samples before timing (cold-start data) |
+| `--batch-sizes` | `1,2,4` | Comma-separated input batch sizes to sweep |
+| `--micro-batch-sizes` | `4` | Comma-separated micro-batch sizes to sweep |
+| `--no-mb-sweep` | off | Fix micro-batch size at 4 (same as default single value) |
+| `--repeats` | `3` | Timed repetitions per config (for p50/p90/p99) |
+| `--warmup` | `1` | Warmup samples before timing (cold-start data) |
 | `--corpus` | `data/benchmark` | Directory containing HTML files |
 | `--query` | *(generic)* | Extraction query for all samples |
 | `--out` | `benchmarks/results` | Output directory for results |

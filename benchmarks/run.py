@@ -2,14 +2,24 @@
 
 Usage::
 
-    python -m benchmarks.run --backend vllm --device gpu --batch-sizes 1,4,16,64
-    python -m benchmarks.run --backend hf --device cpu --batch-sizes 1 --repeats 3
+    # Smoke test (recommended first run)
+    python -m benchmarks.run --backend vllm --batch-sizes 1 --repeats 1 --warmup 1 --no-mb-sweep
+
+    # Default sweep (still substantial — each doc is multi-chunk LLM work)
+    python -m benchmarks.run --backend vllm --device gpu --batch-sizes 1,2,4 --no-mb-sweep
+    python -m benchmarks.run --backend hf --device cpu --batch-sizes 1 --repeats 1 --warmup 0 --no-mb-sweep
     python -m benchmarks.run --backend vllm --device gpu --no-mb-sweep --plots
 
 The benchmark loads a corpus of local HTML files (as ``AXESample`` objects),
 runs timed extraction passes across a sweep of batch sizes and micro-batch
 sizes, collects per-stage timing events and resource statistics, and writes
 timestamped JSON + Markdown results to ``benchmarks/results/``.
+
+.. note::
+   Defaults are intentionally modest.  Each document is cleaned, split into
+   many chunks, and the **pruner runs one LLM call per chunk** before a final
+   extraction call.  A full Cartesian sweep of large batch sizes × micro-batch
+   sizes × repeats can mean tens of thousands of LLM calls and multi-hour runs.
 """
 
 from __future__ import annotations
@@ -73,31 +83,37 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument(
         "--batch-sizes",
         type=str,
-        default="1,4,16,64",
-        help="Comma-separated input batch sizes to sweep (default: 1,4,16,64).",
+        default="1,2,4",
+        help=(
+            "Comma-separated input batch sizes to sweep (default: 1,2,4). "
+            "Larger values multiply full pipeline work; each doc is multi-chunk."
+        ),
     )
     parser.add_argument(
         "--micro-batch-sizes",
         type=str,
-        default="1,4,8,16",
-        help="Comma-separated micro-batch sizes to sweep (default: 1,4,8,16).",
+        default="4",
+        help=(
+            "Comma-separated micro-batch sizes to sweep (default: 4). "
+            "Use --micro-batch-sizes 1,4,8 to measure pipelining overlap."
+        ),
     )
     parser.add_argument(
         "--no-mb-sweep",
         action="store_true",
-        help="Fix micro-batch size at 4 instead of sweeping.",
+        help="Fix micro-batch size at 4 (same as the default single value).",
     )
     parser.add_argument(
         "--repeats",
         type=int,
-        default=5,
-        help="Number of timed repetitions per config (default: 5).",
+        default=3,
+        help="Number of timed repetitions per config (default: 3).",
     )
     parser.add_argument(
         "--warmup",
         type=int,
-        default=3,
-        help="Number of warmup samples before timing (default: 3).",
+        default=1,
+        help="Number of warmup samples before timing (default: 1).",
     )
     parser.add_argument(
         "--corpus",
@@ -147,6 +163,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     else:
         mb_sizes = _parse_int_list(args.micro_batch_sizes)
 
+    if not batch_sizes:
+        logger.error("No batch sizes provided.")
+        return 2
+    if not mb_sizes:
+        logger.error("No micro-batch sizes provided.")
+        return 2
+
     # ── Load corpus ──
     from benchmarks.harness import DEFAULT_QUERY
 
@@ -154,6 +177,27 @@ def main(argv: Optional[List[str]] = None) -> int:
     logger.info("Loading corpus from %s ...", args.corpus)
     samples = load_corpus(args.corpus, query=query)
     logger.info("Corpus: %d samples", len(samples))
+
+    # Rough work estimate so multi-hour sweeps are not a surprise.
+    # Pruner issues ~1 LLM call per HTML chunk; Amazon-scale pages are ~8–15.
+    n_configs = len(mb_sizes) * len(batch_sizes)
+    est_docs = 0
+    for bs in batch_sizes:
+        est_docs += min(args.warmup, bs) + args.repeats * bs
+    # Multiply by mb sweep (each config re-runs the same docs).
+    est_docs *= len(mb_sizes)
+    logger.info(
+        "Sweep plan: %d config(s), batch_sizes=%s, micro_batch_sizes=%s, "
+        "repeats=%d, warmup=%d → ~%d document-pass(es). "
+        "Each document is multi-chunk (pruner LLM call per chunk + 1 extract). "
+        "Start with --batch-sizes 1 --repeats 1 --warmup 1 --no-mb-sweep if unsure.",
+        n_configs,
+        batch_sizes,
+        mb_sizes,
+        args.repeats,
+        args.warmup,
+        est_docs,
+    )
 
     # ── Output directory ──
     out_dir = Path(args.out)
@@ -178,14 +222,23 @@ def main(argv: Optional[List[str]] = None) -> int:
     collector = StageCollector()
 
     # ── Sweep ──
+    config_idx = 0
     for mb_size in mb_sizes:
         # Only update the micro-batch size attribute — no need to rebuild
         # the LLM engine (vLLM / HF model) for each value.
         pipeline._micro_batch_size = mb_size
 
         for bs in batch_sizes:
+            config_idx += 1
             label = f"{args.backend}/{args.device} b={bs} mb={mb_size}"
-            logger.info("Running config: %s (repeats=%d, warmup=%d)", label, args.repeats, args.warmup)
+            logger.info(
+                "Running config %d/%d: %s (repeats=%d, warmup=%d)",
+                config_idx,
+                n_configs,
+                label,
+                args.repeats,
+                args.warmup,
+            )
 
             if args.profile:
                 import cProfile

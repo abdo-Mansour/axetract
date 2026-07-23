@@ -93,14 +93,20 @@ class AXEPipeline:
         if self._on_stage is not None:
             self._on_stage(stage, event, mb_index, time.perf_counter())
 
-    @staticmethod
-    def _free_gpu_cache():
+    def _free_gpu_cache(self):
         """Reclaim GPU memory between stages.
 
         Triggers Python's garbage collector to finalize dead tensor references,
         then returns freed memory blocks to the CUDA allocator. No-op if CUDA
         is not available.
+
+        This is wrapped in a ``"setup"`` stage event pair so benchmark Gantt
+        timelines do not show an unexplained gap between ``prune`` exit and
+        ``extract`` enter (GC + ``empty_cache()`` can take hundreds of
+        milliseconds, especially after a batch's pruner LoRA forward pass
+        finishes).
         """
+        self._emit_stage("setup", "enter", None)
         try:
             import torch
 
@@ -109,6 +115,7 @@ class AXEPipeline:
                 torch.cuda.empty_cache()
         except ImportError:
             pass
+        self._emit_stage("setup", "exit", None)
 
     @staticmethod
     def _read_path_content(path: Path) -> str:

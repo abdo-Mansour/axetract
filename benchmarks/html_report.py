@@ -60,10 +60,11 @@ NEUTRAL = "#6b6258"
 STAGE_COLORS = {
     "preprocess": "#d97757",
     "prune": "#f15822",
+    "setup": "#8a6f5c",      # GC + torch.cuda.empty_cache() between stages
     "extract": "#c2976b",
     "postprocess": "#7fb069",
 }
-STAGE_ORDER = ("preprocess", "prune", "extract", "postprocess")
+STAGE_ORDER = ("preprocess", "prune", "setup", "extract", "postprocess")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -999,6 +1000,7 @@ def _drilldown(
             ("Output tokens (total)", _fmt_int(m.get("output_tokens_total"))),
             ("Preprocess (s)", _fmt(occ.get("preprocess"), 4)),
             ("Prune (s)", _fmt(occ.get("prune"), 4)),
+            ("Setup / GPU cache (s)", _fmt(occ.get("setup"), 4)),
             ("Extract (s)", _fmt(occ.get("extract"), 4)),
             ("Postprocess (s)", _fmt(occ.get("postprocess"), 4)),
             ("Total stage occupancy (s)", _fmt(total_occ, 4)),

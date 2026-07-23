@@ -182,22 +182,38 @@ class GPUResourceSampler:
 
     Only active when CUDA is available.  Otherwise it's a no-op.
 
+    VRAM tracking uses the **driver-level** view (``cudaMemGetInfo`` /
+    ``torch.cuda.mem_get_info``) rather than ``torch.cuda.max_memory_allocated``
+    so that allocations made **outside** of PyTorch's caching allocator — for
+    example, by vLLM, which reserves its KV-cache blocks with raw CUDA
+    calls — are still measured.  Without this fallback, vLLM-backed runs
+    report ``peak_vram_mb=0`` even when the GPU is fully occupied.
+
     Attributes:
         util_samples (List[float]): Sampled utilization percentages.
+        vram_samples (List[int]): Sampled used-VRAM byte counts.
         peak_vram_bytes (int): Peak allocated VRAM across the run.
     """
 
     def __init__(self) -> None:
         self.util_samples: List[float] = []
+        self.vram_samples: List[int] = []
         self.peak_vram_bytes: int = 0
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._torch = None
+        self._device_index: int = 0
         try:
             import torch
 
             if torch.cuda.is_available():
                 self._torch = torch
+                # Pin to the current device so mem_get_info queries the
+                # GPU vLLM (or HF) is actually using.
+                try:
+                    self._device_index = torch.cuda.current_device()
+                except Exception:
+                    self._device_index = 0
         except ImportError:
             pass
 
@@ -212,29 +228,56 @@ class GPUResourceSampler:
             return
         self._stop.clear()
         self.util_samples.clear()
+        self.vram_samples.clear()
         self.peak_vram_bytes = 0
-        self._torch.cuda.reset_peak_memory_stats()
+        # Reset the PyTorch-allocator tracker too — useful for the HF
+        # backend where the model lives inside the caching allocator.
+        try:
+            self._torch.cuda.reset_peak_memory_stats(self._device_index)
+        except Exception:
+            pass
         self._thread = threading.Thread(target=self._poll, daemon=True)
         self._thread.start()
 
     def stop(self) -> None:
-        """Stop sampling and record final peak VRAM."""
+        """Stop sampling and record final peak VRAM.
+
+        Prefers the driver-level peak (works for vLLM); falls back to
+        PyTorch's caching-allocator tracker (works for HF) if the driver
+        query produced no samples.
+        """
         if not self.available:
             return
         self._stop.set()
         if self._thread is not None:
             self._thread.join(timeout=2.0)
             self._thread = None
-        self.peak_vram_bytes = self._torch.cuda.max_memory_allocated()
+        driver_peak = max(self.vram_samples) if self.vram_samples else 0
+        try:
+            torch_peak = self._torch.cuda.max_memory_allocated(self._device_index)
+        except Exception:
+            torch_peak = 0
+        # Take the larger of the two so we never under-report.
+        self.peak_vram_bytes = max(driver_peak, int(torch_peak))
 
     def _poll(self) -> None:
-        """Background loop sampling utilization at 10ms intervals."""
+        """Background loop sampling utilization and VRAM at 10ms intervals."""
         assert self._torch is not None
         while not self._stop.is_set():
             try:
                 util = self._torch.cuda.utilization()
                 if util is not None:
                     self.util_samples.append(float(util))
+            except Exception:
+                pass
+            # Driver-level used VRAM = total - free.  This reports
+            # **all** allocations on the device (vLLM, other processes,
+            # framework overhead), not just PyTorch's view.
+            try:
+                free_b, total_b = self._torch.cuda.mem_get_info(self._device_index)
+                used_b = int(total_b) - int(free_b)
+                if used_b > 0:
+                    self.vram_samples.append(used_b)
             except Exception:
                 pass
             time.sleep(0.01)

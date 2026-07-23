@@ -9,8 +9,12 @@ from __future__ import annotations
 import statistics
 from typing import Any, Dict, List, Optional, Tuple
 
-# Stage names in pipeline order.
-STAGE_NAMES = ("preprocess", "prune", "extract", "postprocess")
+# Stage names in pipeline order.  ``setup`` accounts for the GPU memory
+# reclaim (``gc.collect()`` + ``torch.cuda.empty_cache()``) that runs
+# between ``prune`` and ``extract`` in sequential mode — without it, the
+# per-stage occupancy totals under-report wall-clock and the Gantt chart
+# has an unexplained gap.
+STAGE_NAMES = ("preprocess", "prune", "setup", "extract", "postprocess")
 
 
 def percentiles(values: List[float], ps: Tuple[float, ...] = (50, 90, 99)) -> Dict[str, float]:

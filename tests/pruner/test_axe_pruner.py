@@ -263,3 +263,38 @@ class TestAXEPruner:
         assert pruner.batch_size == 32
         assert pruner.num_workers == 8
         assert pruner.llm_pruner_prompt == PRUNER_PROMPT
+        assert pruner.skip is False
+
+    def test_skip_default_is_false(self):
+        mock_llm = MagicMock()
+        pruner = AXEPruner(llm_pruner_client=mock_llm, llm_pruner_prompt=PRUNER_PROMPT)
+        assert pruner.skip is False
+
+    def test_skip_true_bypasses_llm_and_sets_current_html(self):
+        mock_llm = MagicMock()
+        pruner = AXEPruner(
+            llm_pruner_client=mock_llm,
+            llm_pruner_prompt=PRUNER_PROMPT,
+            skip=True,
+        )
+        sample = self._make_sample()
+        sample.current_html = sample.content
+        results = pruner([sample])
+        assert len(results) == 1
+        assert results[0].current_html == sample.content
+        mock_llm.call_batch.assert_not_called()
+
+    def test_skip_true_without_client_or_prompt(self):
+        pruner = AXEPruner(skip=True)
+        sample = self._make_sample()
+        sample.current_html = sample.content
+        results = pruner([sample])
+        assert len(results) == 1
+        assert results[0].current_html == sample.content
+
+    def test_skip_false_without_client_or_prompt_raises_value_error(self):
+        import pytest
+
+        with pytest.raises(ValueError, match="llm_pruner_client and llm_pruner_prompt must be provided"):
+            AXEPruner(skip=False)
+

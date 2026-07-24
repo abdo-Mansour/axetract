@@ -61,7 +61,7 @@ from axetract import AXEPipeline
 
 extractor = AXEPipeline.from_config(
     use_vllm=True,
-    vllm_base_url="http://localhost:8000"
+    vllm_base_url="http://localhost:8004"
 )
 result = extractor.extract(
     input_data="https://example.com/product",
@@ -87,17 +87,26 @@ pipeline = AXEPipeline.from_config()
 
 batch = [
     AXESample(
+        id="einstein",
         content="https://en.wikipedia.org/wiki/Albert_Einstein",
+        is_content_url=True,
         schema_model=PersonSchema,
     ),
     AXESample(
+        id="product",
         content="https://example.com/product/123",
+        is_content_url=True,
         schema_model=ProductSchema,
     ),
     AXESample(
+        id="article",
         content="https://example.com/article",
+        is_content_url=True,
         query="Extract the article title and author",
     ),
 ]
 
 results = pipeline.extract_batch(batch)
+
+print(results[0].prediction)
+# %%

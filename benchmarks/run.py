@@ -10,10 +10,21 @@ Usage::
     python -m benchmarks.run --backend hf --device cpu --batch-sizes 1 --repeats 1 --warmup 0 --no-mb-sweep
     python -m benchmarks.run --backend vllm --device gpu --no-mb-sweep --plots
 
+    # Skip the pruner entirely (no chunk-level LLM calls before extraction)
+    python -m benchmarks.run --backend vllm --batch-sizes 1 --repeats 1 --warmup 1 --no-mb-sweep --pruner skip
+
+    # Compare with/without pruner in a single run (each config is measured twice)
+    python -m benchmarks.run --backend vllm --batch-sizes 1 --repeats 1 --warmup 1 --no-mb-sweep --pruner both
+
 The benchmark loads a corpus of local HTML files (as ``AXESample`` objects),
 runs timed extraction passes across a sweep of batch sizes and micro-batch
 sizes, collects per-stage timing events and resource statistics, and writes
 timestamped JSON + Markdown results to ``benchmarks/results/``.
+
+With ``--pruner both``, every (batch_size, micro_batch_size) configuration
+is measured twice — once with the pruner enabled and once with it skipped —
+so the latency/throughput contribution of the chunk-level pruner LoRA calls
+is directly visible in the same report.
 
 .. note::
    Defaults are intentionally modest.  Each document is cleaned, split into
@@ -30,7 +41,7 @@ import logging
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 # Ensure project root is on sys.path so ``benchmarks`` is importable
 # even when invoked directly as ``python benchmarks/run.py``.
@@ -160,6 +171,19 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="Dump cProfile stats (for deep-dive profiling).",
     )
     parser.add_argument(
+        "--pruner",
+        choices=["use", "skip", "both"],
+        default="use",
+        help=(
+            "How to run the pruner stage. "
+            "'use' (default): pruner is enabled normally (one LLM call per chunk). "
+            "'skip': pruner stage is disabled (raw preprocessor HTML goes to extractor). "
+            "'both': each batch/micro-batch configuration is measured twice — once with "
+            "the pruner enabled and once with it skipped — so the pruner's contribution "
+            "is visible in the same report."
+        ),
+    )
+    parser.add_argument(
         "-v", "--verbose",
         action="store_true",
         help="Enable debug logging.",
@@ -199,19 +223,25 @@ def main(argv: Optional[List[str]] = None) -> int:
     # Rough work estimate so multi-hour sweeps are not a surprise.
     # Pruner issues ~1 LLM call per HTML chunk; Amazon-scale pages are ~8–15.
     n_configs = len(mb_sizes) * len(batch_sizes)
+    n_pruner_variants = {"use": 1, "skip": 1, "both": 2}[args.pruner]
     est_docs = 0
     for bs in batch_sizes:
         est_docs += min(args.warmup, bs) + args.repeats * bs
-    # Multiply by mb sweep (each config re-runs the same docs).
-    est_docs *= len(mb_sizes)
+    # Multiply by mb sweep (each config re-runs the same docs)
+    # and by pruner variants ("both" doubles the work).
+    est_docs *= len(mb_sizes) * n_pruner_variants
     logger.info(
-        "Sweep plan: %d config(s), batch_sizes=%s, micro_batch_sizes=%s, "
-        "repeats=%d, warmup=%d → ~%d document-pass(es). "
-        "Each document is multi-chunk (pruner LLM call per chunk + 1 extract). "
+        "Sweep plan: %d batch/mb config(s) × %d pruner variant(s) = %d total, "
+        "batch_sizes=%s, micro_batch_sizes=%s, pruner=%s, repeats=%d, "
+        "warmup=%d → ~%d document-pass(es). Each document is multi-chunk "
+        "(pruner LLM call per chunk + 1 extract). "
         "Start with --batch-sizes 1 --repeats 1 --warmup 1 --no-mb-sweep if unsure.",
         n_configs,
+        n_pruner_variants,
+        n_configs * n_pruner_variants,
         batch_sizes,
         mb_sizes,
+        args.pruner,
         args.repeats,
         args.warmup,
         est_docs,
@@ -228,6 +258,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     config_labels: List[str] = []
 
     # ── Build pipeline once (the LLM client is expensive to construct) ──
+    # The pipeline is built with the pruner enabled (the default) so that
+    # when ``--pruner both`` is requested we can simply flip ``skip`` on
+    # the existing pruner instance instead of rebuilding the LLM client.
     logger.info(
         "Building pipeline: backend=%s device=%s",
         args.backend, args.device,
@@ -239,58 +272,85 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
     collector = StageCollector()
 
+    # Determine which pruner variants to sweep.
+    # "use"  -> only [(True,  "")]
+    # "skip" -> only [(False, "")]
+    # "both" -> [(True,  "+pruner"), (False, "-pruner")]
+    if args.pruner == "use":
+        pruner_variants: List[Tuple[bool, str]] = [(True, "")]
+    elif args.pruner == "skip":
+        pruner_variants = [(False, "")]
+    else:  # "both"
+        pruner_variants = [(True, " [+pruner]"), (False, " [-pruner]")]
+    n_pruner_variants = len(pruner_variants)
+
     # ── Sweep ──
     config_idx = 0
+    total_configs = n_configs * n_pruner_variants
     for mb_size in mb_sizes:
         # Only update the micro-batch size attribute — no need to rebuild
         # the LLM engine (vLLM / HF model) for each value.
         pipeline._micro_batch_size = mb_size
 
         for bs in batch_sizes:
-            config_idx += 1
-            label = f"{args.backend}/{args.device} b={bs} mb={mb_size}"
-            logger.info(
-                "Running config %d/%d: %s (repeats=%d, warmup=%d)",
-                config_idx,
-                n_configs,
-                label,
-                args.repeats,
-                args.warmup,
-            )
+            for pruner_enabled, pruner_tag in pruner_variants:
+                # Toggle the pruner at runtime — no LLM rebuild needed.
+                pipeline._pruner.skip = not pruner_enabled
 
-            if args.profile:
-                import cProfile
-                profiler = cProfile.Profile()
-                profiler.enable()
+                config_idx += 1
+                label = (
+                    f"{args.backend}/{args.device} b={bs} mb={mb_size}"
+                    f"{pruner_tag}"
+                )
+                logger.info(
+                    "Running config %d/%d: %s (pruner=%s, repeats=%d, warmup=%d)",
+                    config_idx,
+                    total_configs,
+                    label,
+                    "on" if pruner_enabled else "off",
+                    args.repeats,
+                    args.warmup,
+                )
 
-            raw = run_config(
-                pipeline=pipeline,
-                samples=samples,
-                batch_size=bs,
-                repeats=args.repeats,
-                warmup=args.warmup,
-                collector=collector,
-            )
+                if args.profile:
+                    import cProfile
+                    profiler = cProfile.Profile()
+                    profiler.enable()
 
-            if args.profile:
-                profiler.disable()
-                prof_path = out_dir / f"{base_name}_b{bs}_mb{mb_size}.prof"
-                profiler.dump_stats(str(prof_path))
-                logger.info("Profile saved to %s", prof_path)
+                raw = run_config(
+                    pipeline=pipeline,
+                    samples=samples,
+                    batch_size=bs,
+                    repeats=args.repeats,
+                    warmup=args.warmup,
+                    collector=collector,
+                )
 
-            metrics = compute_run_metrics(raw)
+                if args.profile:
+                    profiler.disable()
+                    prof_path = out_dir / (
+                        f"{base_name}_b{bs}_mb{mb_size}"
+                        f"{'_noprune' if not pruner_enabled else ''}.prof"
+                    )
+                    profiler.dump_stats(str(prof_path))
+                    logger.info("Profile saved to %s", prof_path)
 
-            all_raw.append(raw)
-            all_metrics.append(metrics)
-            config_labels.append(label)
+                # Record the pruner setting alongside the raw metrics.
+                raw["pruner_enabled"] = pruner_enabled
 
-            logger.info(
-                "  -> p50=%.3fs  docs/s=%.1f  overlap=%.1f%%  success=%.1f%%",
-                metrics["latency_p50_s"],
-                metrics["docs_per_s"],
-                metrics["overlap_efficiency"] * 100,
-                metrics["success_rate"] * 100,
-            )
+                metrics = compute_run_metrics(raw)
+
+                all_raw.append(raw)
+                all_metrics.append(metrics)
+                config_labels.append(label)
+
+                logger.info(
+                    "  -> p50=%.3fs  docs/s=%.1f  overlap=%.1f%%  success=%.1f%%",
+                    metrics["latency_p50_s"],
+                    metrics["docs_per_s"],
+                    metrics["overlap_efficiency"] * 100,
+                    metrics["success_rate"] * 100,
+                )
 
     # ── Write JSON ──
     json_path = out_dir / f"{base_name}.json"
@@ -303,6 +363,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         "corpus_size": len(samples),
         "batch_sizes": batch_sizes,
         "micro_batch_sizes": mb_sizes,
+        "pruner_mode": args.pruner,
         "repeats": args.repeats,
         "warmup": args.warmup,
         "configs": config_labels,
@@ -330,22 +391,36 @@ def main(argv: Optional[List[str]] = None) -> int:
     # ── HTML report ──
     html_path: Optional[Path] = None
     pgf_dir: Optional[Path] = (out_dir / f"{base_name}_pgf") if args.pgf else None
+    pgf_written: List[Path] = []
     if args.html:
         from benchmarks.html_report import build_report
 
         html_path = out_dir / f"{base_name}.html"
-        build_report([json_payload], [json_payload.get("timestamp", "")], html_path, pgf_dir=pgf_dir)
+        pgf_written = build_report([json_payload], [json_payload.get("timestamp", "")], html_path, pgf_dir=pgf_dir)
         logger.info("HTML report written to %s", html_path)
         # PGF files already exported by build_report when pgf_dir was given.
         if pgf_dir:
-            logger.info("PGF charts written to %s", pgf_dir)
+            if pgf_written:
+                logger.info("PGF charts written to %s (%d files)", pgf_dir, len(pgf_written))
+            else:
+                logger.warning(
+                    "PGF export produced no files — see warnings above "
+                    "(common cause: missing TeX engine such as xelatex)."
+                )
             pgf_dir = None  # Prevent double export below.
     # ── Standalone PGF export (--pgf without --html) ──
     if pgf_dir is not None:
         from benchmarks.html_report import build_report
 
-        build_report([json_payload], [json_payload.get("timestamp", "")], html_path or (out_dir / f"{base_name}.html"), pgf_dir=pgf_dir)
-        logger.info("PGF charts written to %s", pgf_dir)
+        standalone_html = html_path or (out_dir / f"{base_name}.html")
+        pgf_written = build_report([json_payload], [json_payload.get("timestamp", "")], standalone_html, pgf_dir=pgf_dir)
+        if pgf_written:
+            logger.info("PGF charts written to %s (%d files)", pgf_dir, len(pgf_written))
+        else:
+            logger.warning(
+                "PGF export produced no files — see warnings above "
+                "(common cause: missing TeX engine such as xelatex)."
+            )
 
     # ── Print summary to console ──
     print("\n" + "=" * 70)
@@ -357,7 +432,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     if html_path:
         print(f"HTML:    {html_path}")
     if args.pgf:
-        print(f"PGF:     {out_dir / (base_name + '_pgf')}/")
+        pgf_out_dir = out_dir / (base_name + "_pgf")
+        if pgf_written:
+            print(f"PGF:     {pgf_out_dir}/ ({len(pgf_written)} files)")
+        else:
+            print(f"PGF:     {pgf_out_dir}/ (no files — see warnings)")
 
     return 0
 

@@ -752,7 +752,44 @@ def _interp_throughput(metrics_list: List[Dict[str, Any]]) -> List[str]:
         first, last = bss[0], bss[-1]
         ratio = by_bs[last] / by_bs[first] if by_bs[first] else 0
         ideal = last / first if first else 1
-        if ratio < ideal * 0.7:
+        # If we have measured pruner pairs, prefer the *measured* attribution
+        # over the generic "pruner LLM calls dominate" heuristic below.
+        pairs = _pruner_pairs(metrics_list)
+        if pairs:
+            # Attribute the scaling shortfall to the pruner if the measured
+            # pruner overhead can plausibly explain it.
+            avg_ratio = sum(p["delta_ratio"] for p in pairs.values()) / len(pairs)
+            no_pruner_ratio = by_bs[last] / by_bs[first] * avg_ratio
+            # Sanity: if "multiplying observed ratio by pruner overhead"
+            # produces a number close to the ideal, the pruner is the
+            # bottleneck.
+            if no_pruner_ratio >= ideal * 0.85:
+                bullets.append(
+                    f"Throughput scales sub-linearly from b={first}→b={last} "
+                    f"({by_bs[first]:.2f}→{by_bs[last]:.2f} docs/s, "
+                    f"{ratio:.2f}× vs ideal {ideal:.2f}×). <strong>Measured "
+                    f"pruner overhead is ×{avg_ratio:.2f}</strong> — once you "
+                    f"account for the chunk-level pruner LLM calls, scaling is "
+                    f"close to ideal ({no_pruner_ratio:.2f}×). Removing the "
+                    f"pruner (or batching its calls more aggressively) is the "
+                    f"main lever."
+                )
+            elif ratio < ideal * 0.7:
+                bullets.append(
+                    f"Throughput scales sub-linearly from b={first}→b={last} "
+                    f"({by_bs[first]:.2f}→{by_bs[last]:.2f} docs/s, "
+                    f"{ratio:.2f}× vs ideal {ideal:.2f}×). Pruner overhead "
+                    f"(measured ×{avg_ratio:.2f}) does not fully explain the "
+                    f"shortfall — investigate other bottlenecks (extract "
+                    f"stage, KV-cache, CPU preprocessing)."
+                )
+            else:
+                bullets.append(
+                    f"Throughput scales well from b={first}→b={last} "
+                    f"({ratio:.2f}× vs ideal {ideal:.2f}×). Measured pruner "
+                    f"overhead ×{avg_ratio:.2f} is not the bottleneck."
+                )
+        elif ratio < ideal * 0.7:
             bullets.append(
                 f"Throughput scales <em>sub-linearly</em> from b={first}→b={last} "
                 f"({by_bs[first]:.2f}→{by_bs[last]:.2f} docs/s, {ratio:.2f}× vs "
@@ -813,6 +850,155 @@ def _interp_success(metrics_list: List[Dict[str, Any]]) -> List[str]:
             f"extractions failed (JSON parse errors or LLM refusals)."
         )
     return bullets
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Pruner-on/off comparison (only rendered when --pruner=both produced pairs)
+# ──────────────────────────────────────────────────────────────────────
+
+
+def _pruner_pairs(
+    metrics_list: List[Dict[str, Any]],
+    config_labels: Optional[List[str]] = None,
+) -> Dict[str, Dict[str, Any]]:
+    """Return the per-config pruner-on/off pairs (empty if no pairs)."""
+    from benchmarks.pruner_delta import pair_pruner_runs
+
+    return pair_pruner_runs(metrics_list, config_labels)
+
+
+def _interp_pruner_overhead(
+    metrics_list: List[Dict[str, Any]],
+    config_labels: Optional[List[str]] = None,
+) -> List[str]:
+    """Interpretation bullets about measured pruner overhead (--pruner=both)."""
+    bullets: List[str] = []
+    if not metrics_list:
+        return bullets
+    pairs = _pruner_pairs(metrics_list, config_labels)
+    if not pairs:
+        return bullets
+
+    from benchmarks.pruner_delta import aggregate_overhead
+
+    agg = aggregate_overhead(pairs)
+    if agg is None:
+        return bullets
+
+    bullets.append(
+        f"Across <strong>{agg['n_pairs']}</strong> paired configurations, the "
+        f"pruner adds <strong>{agg['mean_delta_s']:.2f}s</strong> of mean "
+        f"latency per run on average (<strong>×{agg['mean_delta_ratio']:.2f}</strong> "
+        f"vs. the pruner-off twin)."
+    )
+    bullets.append(
+        f"The pruner stage itself occupies <strong>{agg['mean_prune_pct']:.1f}%</strong> "
+        f"of wall-clock time in the pruner-on runs."
+    )
+
+    # Per-config extremes.
+    sorted_by_ratio = sorted(pairs.values(), key=lambda p: p["delta_ratio"], reverse=True)
+    if sorted_by_ratio:
+        top = sorted_by_ratio[0]
+        bullets.append(
+            f"Highest pruner overhead: <strong>×{top['delta_ratio']:.2f}</strong> "
+            f"at config <code>{top['batch_size']}×{top['micro_batch_size']}</code> "
+            f"({top['on_mean_s']:.2f}s vs. {top['off_mean_s']:.2f}s)."
+        )
+        bottom = sorted_by_ratio[-1]
+        if bottom["delta_ratio"] < top["delta_ratio"] - 0.1:
+            bullets.append(
+                f"Lowest pruner overhead: <strong>×{bottom['delta_ratio']:.2f}</strong> "
+                f"at config <code>{bottom['batch_size']}×{bottom['micro_batch_size']}</code>."
+            )
+    return bullets
+
+
+def _pruner_overhead_section(
+    metrics_list: List[Dict[str, Any]],
+    config_labels: Optional[List[str]] = None,
+) -> str:
+    """Render the pruner-on/off comparison section (empty string if no pairs).
+
+    The section contains:
+      * A summary stats paragraph
+      * A bar chart (paired bars: on vs off mean latency) per (batch_size, mb)
+      * An inline data table with on/off/Δ/ratio/prune-occupancy
+      * Interpretation bullets
+    """
+    pairs = _pruner_pairs(metrics_list, config_labels)
+    if not pairs:
+        return ""
+
+    from benchmarks.pruner_delta import aggregate_overhead
+
+    agg = aggregate_overhead(pairs)
+    if agg is None:
+        return ""
+
+    # Sort by (batch_size, micro_batch_size) so the chart reads naturally.
+    sorted_pairs = sorted(
+        pairs.values(),
+        key=lambda p: (p["batch_size"], p["micro_batch_size"]),
+    )
+    categories = [f"b={p['batch_size']} mb={p['micro_batch_size']}" for p in sorted_pairs]
+    on_vals = [p["on_mean_s"] for p in sorted_pairs]
+    off_vals = [p["off_mean_s"] for p in sorted_pairs]
+
+    chart = _bar_chart(
+        series=[
+            {"name": "+pruner mean (s)", "color": STAGE_COLORS["prune"], "values": on_vals},
+            {"name": "−pruner mean (s)", "color": STAGE_COLORS["extract"], "values": off_vals},
+        ],
+        categories=categories,
+        y_label="Mean latency (s)",
+        y_unit="s",
+        value_fmt=lambda v: f"{v:.2f}s",
+    )
+
+    # Table.
+    rows_html = []
+    for p in sorted_pairs:
+        rows_html.append(
+            "<tr>"
+            f"<td><code>b={p['batch_size']} mb={p['micro_batch_size']}</code></td>"
+            f"<td>{p['on_mean_s']:.2f}</td>"
+            f"<td>{p['off_mean_s']:.2f}</td>"
+            f"<td>{p['delta_s']:+.2f}</td>"
+            f"<td><strong>×{p['delta_ratio']:.2f}</strong></td>"
+            f"<td>{p['prune_occupancy_s']:.2f}</td>"
+            "</tr>"
+        )
+    table = (
+        '<div class="table-wrap"><table class="summary">'
+        "<thead><tr>"
+        "<th>Config</th><th>+pruner mean (s)</th><th>−pruner mean (s)</th>"
+        "<th>Δ (s)</th><th>× ratio</th><th>Prune stage occ (s)</th>"
+        "</tr></thead>"
+        f"<tbody>{''.join(rows_html)}</tbody>"
+        "</table></div>"
+    )
+
+    summary_p = (
+        f'<p class="muted">Across <strong>{agg["n_pairs"]}</strong> paired '
+        f'configurations: mean overhead '
+        f'<strong>+{agg["mean_delta_s"]:.2f}s</strong> '
+        f'(×<strong>{agg["mean_delta_ratio"]:.2f}</strong>); pruner stage '
+        f'occupies <strong>{agg["mean_prune_pct"]:.1f}%</strong> of wall-clock '
+        f'time in the pruner-on runs.</p>'
+    )
+
+    bullets_html = _bullets(_interp_pruner_overhead(metrics_list, config_labels))
+    return (
+        '<section class="chart-section" id="pruner-overhead">'
+        "<h3>Pruner overhead (--pruner=both paired configs)</h3>"
+        f"<div>{summary_p}</div>"
+        f'<div class="chart">{chart}</div>'
+        f"<div>{table}</div>"
+        f'<div class="interp"><span class="interp-label">Interpretation</span>'
+        f"{bullets_html}</div>"
+        "</section>"
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -1024,12 +1210,26 @@ def _drilldown(
 def _pgf_setup() -> Any:
     """Configure matplotlib for PGF export with the report's dark theme.
 
+    The TeX system is auto-detected by actually probing each candidate
+    engine (``xelatex`` → ``lualatex`` → ``pdflatex`` → ``latex``) with a
+    throwaway figure, because an engine being on ``PATH`` does not
+    guarantee it can render (e.g. a minimal TeX Live install may have a
+    broken ``lualatex`` due to missing font metrics).  The first engine
+    that successfully produces a PGF file is selected.
+
+    The ``fontspec`` / ``\\setmainfont`` preamble is only applied for
+    engines that support it (``xelatex`` / ``lualatex``).
+
     Returns:
         The ``matplotlib.pyplot`` module.
 
     Raises:
         ImportError: If matplotlib is not installed.
+        RuntimeError: If no supported TeX engine can render a test figure.
     """
+    import shutil
+    import tempfile
+
     import matplotlib
 
     # If pyplot was already imported (e.g. by --plots with "Agg" backend),
@@ -1044,35 +1244,92 @@ def _pgf_setup() -> Any:
         # Fallback: set before any figure is created.
         matplotlib.use("pgf")
 
-    plt.rcParams.update(
-        {
-            "figure.facecolor": BG,
-            "axes.facecolor": SURFACE_2,
-            "savefig.facecolor": BG,
-            "text.color": TEXT,
-            "axes.labelcolor": TEXT_DIM,
-            "axes.titlecolor": TEXT,
-            "xtick.color": TEXT_DIM,
-            "ytick.color": TEXT_DIM,
-            "axes.edgecolor": BORDER,
-            "grid.color": BORDER,
-            "grid.alpha": 0.4,
-            "axes.grid": True,
-            "axes.grid.axis": "y",
-            "font.size": 10,
-            "axes.titlesize": 12,
-            "axes.labelsize": 10,
-            "legend.fontsize": 9,
-            "legend.facecolor": SURFACE,
-            "legend.edgecolor": BORDER,
-            "figure.dpi": 150,
-            "pgf.texsystem": "xelatex",  # xelatex is the most portable.
-            "pgf.preamble": (
-                r"\usepackage{fontspec}"
-                r"\setmainfont{DejaVu Sans}"
-            ),
-        }
-    )
+    _ENGINES_WITH_FONTSPEC = ("xelatex", "lualatex")
+    candidate_engines = [
+        eng for eng in (*_ENGINES_WITH_FONTSPEC, "pdflatex", "latex")
+        if shutil.which(eng)
+    ]
+    if not candidate_engines:
+        raise RuntimeError(
+            "No supported TeX engine found on PATH. Install one of "
+            "xelatex, lualatex, pdflatex, or latex (e.g. `apt install "
+            "texlive-xetex` or `texlive-luatex` for the fontspec-aware "
+            "engines)."
+        )
+
+    def _try_engine(eng: str) -> bool:
+        """Probe ``eng`` by rendering a tiny figure to a temp PGF file."""
+        preamble = (
+            r"\usepackage{fontspec}" r"\setmainfont{DejaVu Sans}"
+            if eng in _ENGINES_WITH_FONTSPEC
+            else ""
+        )
+        rc: Dict[str, Any] = {"pgf.texsystem": eng}
+        if preamble:
+            rc["pgf.preamble"] = preamble
+        with plt.rc_context(rc):
+            try:
+                fig, ax = plt.subplots()
+                ax.bar(["x", "y"], [1.0, 2.0])
+                ax.set_ylabel("y")
+                fig.tight_layout()
+                with tempfile.NamedTemporaryFile(
+                    suffix=".pgf", delete=False
+                ) as tmp:
+                    tmp_path = tmp.name
+                try:
+                    fig.savefig(tmp_path)
+                finally:
+                    plt.close(fig)
+                return Path(tmp_path).exists() and Path(tmp_path).stat().st_size > 0
+            except Exception:
+                return False
+            finally:
+                try:
+                    Path(tmp_path).unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+    texsystem = next((eng for eng in candidate_engines if _try_engine(eng)), None)
+    if texsystem is None:
+        raise RuntimeError(
+            "Found TeX engine(s) on PATH "
+            f"({', '.join(candidate_engines)}) but none could render a "
+            "test PGF figure. Check your TeX installation (e.g. missing "
+            "font metrics for lualatex) or install a working engine."
+        )
+
+    preamble = ""
+    if texsystem in _ENGINES_WITH_FONTSPEC:
+        preamble = r"\usepackage{fontspec}" r"\setmainfont{DejaVu Sans}"
+
+    rc: Dict[str, Any] = {
+        "figure.facecolor": BG,
+        "axes.facecolor": SURFACE_2,
+        "savefig.facecolor": BG,
+        "text.color": TEXT,
+        "axes.labelcolor": TEXT_DIM,
+        "axes.titlecolor": TEXT,
+        "xtick.color": TEXT_DIM,
+        "ytick.color": TEXT_DIM,
+        "axes.edgecolor": BORDER,
+        "grid.color": BORDER,
+        "grid.alpha": 0.4,
+        "axes.grid": True,
+        "axes.grid.axis": "y",
+        "font.size": 10,
+        "axes.titlesize": 12,
+        "axes.labelsize": 10,
+        "legend.fontsize": 9,
+        "legend.facecolor": SURFACE,
+        "legend.edgecolor": BORDER,
+        "figure.dpi": 150,
+        "pgf.texsystem": texsystem,
+    }
+    if preamble:
+        rc["pgf.preamble"] = preamble
+    plt.rcParams.update(rc)
+    logger.info("PGF backend using TeX engine: %s", texsystem)
     return plt
 
 
@@ -1647,6 +1904,15 @@ def build_report(
     # ── Success section ──
     success_interp = _interp_success(metrics_list)
 
+    # ── Pruner overhead section (only when --pruner=both produced pairs) ──
+    pruner_section = _pruner_overhead_section(metrics_list, labels)
+    pruner_section_html = (
+        '<h2 id="pruner-overhead-heading">Pruner On vs. Off</h2>'
+        f"{pruner_section}"
+        if pruner_section
+        else ""
+    )
+
     # ── Drill-down ──
     drilldown_html = _drilldown(metrics_list, labels, flat_run_labels, raw_runs)
 
@@ -1680,6 +1946,7 @@ def build_report(
 {_section("Mean GPU utilization per config", gpu_chart, [], "gpu")}
 {_section("Peak VRAM per config", vram_chart, [], "vram")}
 {_section("Peak host RSS per config", rss_chart, resource_interp, "rss")}
+{pruner_section_html}
 <h2>Cold Start vs. Steady State</h2>
 {_section("Warmup time vs. steady-state p50 latency", cold_chart, cold_interp, "cold")}
 <h2>Reliability</h2>

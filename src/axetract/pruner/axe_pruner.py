@@ -3,7 +3,7 @@ import logging
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor
-from typing import Iterable, List
+from typing import Iterable, List, Optional
 
 from axetract.data_types import AXESample
 from axetract.llm.base_client import BaseClient
@@ -165,31 +165,42 @@ class AXEPruner(BasePruner):
     """Component for pruning HTML content to keep only relevant nodes using small LLM.
 
     Attributes:
-        llm_pruner_client (BaseClient): The LLM client used for pruning.
-        llm_pruner_prompt (str): The prompt template for the pruner.
+        llm_pruner_client (Optional[BaseClient]): The LLM client used for pruning.
+        llm_pruner_prompt (Optional[str]): The prompt template for the pruner.
         name (str): Component name.
         batch_size (int): Processing batch size.
         num_workers (int): Number of parallel workers for CPU-bound tasks.
+        skip (bool): Whether to skip the pruning process (defaults to False).
         html_processor (SmartHTMLProcessor): Internal processor for HTML manipulation.
     """
 
     def __init__(
         self,
-        llm_pruner_client: BaseClient,
-        llm_pruner_prompt: str,
+        llm_pruner_client: Optional[BaseClient] = None,
+        llm_pruner_prompt: Optional[str] = None,
         name: str = "axe_pruner",
         batch_size: int = 16,
         num_workers: int = 4,
+        skip: bool = False,
     ):
         """Initialize the pruner.
 
         Args:
-            llm_pruner_client (BaseClient): LLM client.
-            llm_pruner_prompt (str): Pruner prompt template.
+            llm_pruner_client (Optional[BaseClient]): LLM client. Required if skip is False.
+            llm_pruner_prompt (Optional[str]): Pruner prompt template. Required if skip is False.
             name (str): Component name.
             batch_size (int): Batch size.
             num_workers (int): Parallel workers.
+            skip (bool): Whether to skip pruning. Default is False.
+
+        Raises:
+            ValueError: If skip is False and client or prompt is missing.
         """
+        super().__init__(name=name, skip=skip)
+        if not skip and (llm_pruner_client is None or llm_pruner_prompt is None):
+            raise ValueError(
+                "llm_pruner_client and llm_pruner_prompt must be provided when skip is False."
+            )
         self.name = name
         self.llm_pruner_client = llm_pruner_client
         self.llm_pruner_prompt = llm_pruner_prompt
@@ -210,6 +221,13 @@ class AXEPruner(BasePruner):
         """
         if len(batch) == 0:
             logger.debug("_filter received empty batch, skipping.")
+            return batch
+
+        if self.skip:
+            logger.debug("[Pruner] Pruning skipped (skip=True). Preserving preprocessor current_html.")
+            for sample in batch:
+                if not sample.current_html:
+                    sample.current_html = sample.content or ""
             return batch
 
         logger.debug("[Pruner] Starting _filter on %d samples.", len(batch))

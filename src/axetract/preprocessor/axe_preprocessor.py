@@ -45,14 +45,16 @@ def _chunk_worker(args: tuple) -> Dict[str, Any]:
         chunks_list = [
             {"chunkid": f"{idx}-{i + 1}", "chunkcontent": c} for i, c in enumerate(chunks)
         ]
-        return {"doc_id": idx, "chunks": chunks_list}
+        return {"doc_id": idx, "chunks": chunks_list, "cleaned_text": cleaned_text}
     except Exception as e:
         tb = traceback.format_exc()
+        err_msg = f"[ERROR {type(e).__name__}] {e}\n{tb}"
         return {
             "doc_id": idx,
             "chunks": [
-                {"chunkid": f"{idx}-err", "chunkcontent": f"[ERROR {type(e).__name__}] {e}\n{tb}"}
+                {"chunkid": f"{idx}-err", "chunkcontent": err_msg}
             ],
+            "cleaned_text": err_msg,
         }
 
 
@@ -175,7 +177,11 @@ class AXEPreprocessor(BasePreprocessor):
         for i, res in enumerate(results):
             samples[i].chunks = [
                 AXEChunk(chunkid=chunk["chunkid"], content=chunk["chunkcontent"])
-                for chunk in res["chunks"]
+                for chunk in res.get("chunks", [])
             ]
+            samples[i].original_html = samples[i].content or ""
+            cleaned_text = res.get("cleaned_text", samples[i].content or "")
+            samples[i].content = cleaned_text
+            samples[i].current_html = cleaned_text
 
         return samples

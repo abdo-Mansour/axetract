@@ -296,3 +296,12 @@ class TestChunkWorker:
         else:
             # In case the code is fixed to return just the dict
             assert "err" in result["chunks"][0]["chunkid"]
+
+    @patch("axetract.preprocessor.axe_preprocessor.chunk_html_content", return_value=["<p>ok</p>"])
+    @patch("axetract.preprocessor.axe_preprocessor.clean_html", return_value="<p>cleaned</p>")
+    def test_preprocessor_populates_current_html(self, mock_clean, mock_chunk):
+        sample = _make_sample(content="<div>raw</div>")
+        p = AXEPreprocessor()
+        results = p(sample)
+        assert results[0].original_html == "<div>raw</div>"
+        assert results[0].current_html == "<p>cleaned</p>"

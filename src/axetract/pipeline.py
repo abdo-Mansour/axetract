@@ -139,13 +139,17 @@ class AXEPipeline:
 
     @classmethod
     def from_config(
-        cls, llm_config: Optional[Dict[str, Any]] = None, use_vllm: bool = False
+        cls,
+        llm_config: Optional[Dict[str, Any]] = None,
+        use_vllm: bool = False,
+        skip_pruner: bool = False,
     ) -> "AXEPipeline":
         """Creates a ready-to-use pipeline with default clients, components, and prompts.
 
         Args:
             llm_config (Optional[Dict[str, Any]]): LLM configuration override.
             use_vllm (bool): Whether to use vLLM for high-throughput serving.
+            skip_pruner (bool): Whether to skip the pruning stage. Default is False.
 
         Returns:
             AXEPipeline: An initialized pipeline instance.
@@ -200,7 +204,11 @@ class AXEPipeline:
             lc = HuggingFaceClient(config=llm_config)
 
         preprocessor = AXEPreprocessor(use_clean_chunker=True, chunk_size=1000)
-        pruner = AXEPruner(llm_pruner_client=lc, llm_pruner_prompt=PRUNER_PROMPT)
+        pruner = AXEPruner(
+            llm_pruner_client=lc,
+            llm_pruner_prompt=PRUNER_PROMPT,
+            skip=skip_pruner,
+        )
         extractor = AXEExtractor(
             llm_extractor_client=lc,
             schema_generation_prompt_template=SCHEMA_PROMPT,

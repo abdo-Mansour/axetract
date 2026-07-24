@@ -7,13 +7,15 @@ from axetract.data_types import AXESample
 class BasePruner(ABC):
     """Abstract base class for all pruners."""
 
-    def __init__(self, name: str):
+    def __init__(self, name: str, skip: bool = False):
         """Initialize the pruner.
 
         Args:
             name (str): Component name.
+            skip (bool): Whether to skip pruning. Default is False.
         """
         self.name = name
+        self.skip = skip
 
     @abstractmethod
     def __call__(self, samples: List[AXESample]) -> List[AXESample]:

@@ -122,6 +122,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="Directory containing benchmark HTML files (default: data/benchmark).",
     )
     parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Maximum number of pages to load from the corpus (default: all).",
+    )
+    parser.add_argument(
         "--query",
         type=str,
         default=None,
@@ -186,6 +192,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     query = args.query or DEFAULT_QUERY
     logger.info("Loading corpus from %s ...", args.corpus)
     samples = load_corpus(args.corpus, query=query)
+    if args.limit is not None:
+        samples = samples[: args.limit]
     logger.info("Corpus: %d samples", len(samples))
 
     # Rough work estimate so multi-hour sweeps are not a surprise.
@@ -321,15 +329,23 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     # ── HTML report ──
     html_path: Optional[Path] = None
+    pgf_dir: Optional[Path] = (out_dir / f"{base_name}_pgf") if args.pgf else None
     if args.html:
         from benchmarks.html_report import build_report
 
         html_path = out_dir / f"{base_name}.html"
-        pgf_dir = (out_dir / f"{base_name}_pgf") if args.pgf else None
         build_report([json_payload], [json_payload.get("timestamp", "")], html_path, pgf_dir=pgf_dir)
         logger.info("HTML report written to %s", html_path)
+        # PGF files already exported by build_report when pgf_dir was given.
         if pgf_dir:
             logger.info("PGF charts written to %s", pgf_dir)
+            pgf_dir = None  # Prevent double export below.
+    # ── Standalone PGF export (--pgf without --html) ──
+    if pgf_dir is not None:
+        from benchmarks.html_report import build_report
+
+        build_report([json_payload], [json_payload.get("timestamp", "")], html_path or (out_dir / f"{base_name}.html"), pgf_dir=pgf_dir)
+        logger.info("PGF charts written to %s", pgf_dir)
 
     # ── Print summary to console ──
     print("\n" + "=" * 70)
@@ -340,8 +356,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     print(f"Report:  {md_path}")
     if html_path:
         print(f"HTML:    {html_path}")
-        if args.pgf:
-            print(f"PGF:     {out_dir / (base_name + '_pgf')}/")
+    if args.pgf:
+        print(f"PGF:     {out_dir / (base_name + '_pgf')}/")
 
     return 0
 

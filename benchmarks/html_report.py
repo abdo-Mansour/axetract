@@ -1032,8 +1032,17 @@ def _pgf_setup() -> Any:
     """
     import matplotlib
 
-    matplotlib.use("pgf")  # PGF backend (LaTeX vector graphics).
+    # If pyplot was already imported (e.g. by --plots with "Agg" backend),
+    # ``matplotlib.use()`` is a no-op.  Switch the backend explicitly.
     import matplotlib.pyplot as plt
+
+    try:
+        plt.switch_backend("pgf")
+    except ImportError:
+        raise
+    except Exception:
+        # Fallback: set before any figure is created.
+        matplotlib.use("pgf")
 
     plt.rcParams.update(
         {

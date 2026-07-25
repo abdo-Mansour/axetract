@@ -66,6 +66,44 @@ def _parse_int_list(s: str) -> List[int]:
     return [int(x.strip()) for x in s.split(",") if x.strip()]
 
 
+def _import_schema(dotted_path: str):
+    """Import a pydantic ``BaseModel`` subclass from a dotted path.
+
+    Args:
+        dotted_path (str): e.g. ``"benchmarks.harness.Product"`` or
+            ``"my_app.schemas:Product"`` (colon form also accepted).
+
+    Returns:
+        Type[BaseModel]: The resolved schema class.
+
+    Raises:
+        ValueError: If the path is malformed or the attribute is not a
+            ``BaseModel`` subclass.
+        ImportError: If the module cannot be imported.
+        AttributeError: If the attribute is not found in the module.
+    """
+    if ":" in dotted_path:
+        module_name, attr = dotted_path.split(":", 1)
+    elif "." in dotted_path:
+        module_name, attr = dotted_path.rsplit(".", 1)
+    else:
+        raise ValueError(
+            f"Invalid schema path {dotted_path!r} — expected "
+            "'module.attr' or 'module:attr'."
+        )
+
+    import importlib
+    from pydantic import BaseModel
+
+    module = importlib.import_module(module_name)
+    schema_cls = getattr(module, attr)
+    if not (isinstance(schema_cls, type) and issubclass(schema_cls, BaseModel)):
+        raise ValueError(
+            f"{dotted_path!r} does not resolve to a pydantic BaseModel subclass."
+        )
+    return schema_cls
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     """Run the benchmark CLI.
 
@@ -139,10 +177,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="Maximum number of pages to load from the corpus (default: all).",
     )
     parser.add_argument(
-        "--query",
+        "--schema",
         type=str,
         default=None,
-        help="Extraction query for all samples (default: a generic product query).",
+        help=(
+            "Dotted path to a pydantic BaseModel class to use as the extraction "
+            "schema (e.g. 'benchmarks.harness.Product'). "
+            "Defaults to the built-in Product schema (name, price, rating)."
+        ),
     )
     parser.add_argument(
         "--out",
@@ -211,11 +253,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 2
 
     # ── Load corpus ──
-    from benchmarks.harness import DEFAULT_QUERY
+    from benchmarks.harness import DEFAULT_SCHEMA
 
-    query = args.query or DEFAULT_QUERY
+    if args.schema:
+        schema_model = _import_schema(args.schema)
+    else:
+        schema_model = DEFAULT_SCHEMA
     logger.info("Loading corpus from %s ...", args.corpus)
-    samples = load_corpus(args.corpus, query=query)
+    samples = load_corpus(args.corpus, schema_model=schema_model)
     if args.limit is not None:
         samples = samples[: args.limit]
     logger.info("Corpus: %d samples", len(samples))
@@ -359,7 +404,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         "backend": args.backend,
         "device": args.device,
         "corpus": args.corpus,
-        "query": query,
+        "schema": (
+            args.schema
+            if args.schema
+            else f"{schema_model.__module__}.{schema_model.__name__}"
+        ),
         "corpus_size": len(samples),
         "batch_sizes": batch_sizes,
         "micro_batch_sizes": mb_sizes,

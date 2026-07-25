@@ -1742,7 +1742,7 @@ def build_report(
         ("Device", p0.get("device", "—")),
         ("Corpus", p0.get("corpus", "—")),
         ("Corpus size", p0.get("corpus_size", "—")),
-        ("Query", p0.get("query", "—")),
+        ("Schema", p0.get("schema", "—")),
         ("Repeats", p0.get("repeats", "—")),
         ("Warmup", p0.get("warmup", "—")),
         ("Batch sizes", ", ".join(str(b) for b in (p0.get("batch_sizes") or []))),

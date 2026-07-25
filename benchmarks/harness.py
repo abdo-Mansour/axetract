@@ -16,15 +16,28 @@ import resource
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type
+
+from pydantic import BaseModel
 
 from axetract.data_types import AXESample, Status
 from axetract.pipeline import AXEPipeline
 
 logger = logging.getLogger(__name__)
 
-# Default extraction query used when a corpus sample has no explicit query.
-DEFAULT_QUERY = "Extract the product name, price, and key specifications."
+
+# Default extraction schema used when a corpus sample has no explicit schema.
+# Mirrors the canonical "Product" example from the README so the benchmark
+# exercises the same structured-extraction path that real users hit.
+class Product(BaseModel):
+    """Canonical benchmark extraction schema (product page)."""
+
+    name: str
+    price: str
+    rating: float
+
+
+DEFAULT_SCHEMA: Type[BaseModel] = Product
 
 # Approximate chars-per-token for the char/4 heuristic.
 CHARS_PER_TOKEN = 4
@@ -37,17 +50,18 @@ CHARS_PER_TOKEN = 4
 
 def load_corpus(
     html_dir: str | Path = "data/benchmark",
-    query: str = DEFAULT_QUERY,
+    schema_model: Optional[Type[BaseModel]] = DEFAULT_SCHEMA,
 ) -> List[AXESample]:
     """Load every ``*.html`` file in *html_dir* as an :class:`AXESample`.
 
     Files with a ``:Zone.Identifier`` suffix (Windows download metadata) are
     skipped.  Each sample's ``content`` is the raw HTML text, ``is_content_url``
-    is ``False``, and ``query`` is set to *query*.
+    is ``False``, and ``schema_model`` is set to *schema_model*.
 
     Args:
         html_dir (str | Path): Directory containing ``.html`` files.
-        query (str): Extraction query to attach to every sample.
+        schema_model (Optional[Type[BaseModel]]): Extraction schema to attach
+            to every sample.  Defaults to :data:`DEFAULT_SCHEMA` (``Product``).
 
     Returns:
         List[AXESample]: One sample per HTML file, sorted by filename.
@@ -70,7 +84,7 @@ def load_corpus(
                 id=p.stem,
                 content=content,
                 is_content_url=False,
-                query=query,
+                schema_model=schema_model,
             )
         )
 

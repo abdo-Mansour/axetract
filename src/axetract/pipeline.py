@@ -203,7 +203,14 @@ class AXEPipeline:
 
             lc = HuggingFaceClient(config=llm_config)
 
-        preprocessor = AXEPreprocessor(use_clean_chunker=True, chunk_size=1000)
+        # cpu_workers=1 forces ThreadPoolExecutor (no fork()).  fork() in a
+        # multithreaded process deadlocks: the LLM client (vLLM/HF) spawns
+        # worker threads at construction, and the pipelined path runs each
+        # stage in its own thread.  A forked child would inherit locks held
+        # by those (killed) threads and hang forever.
+        preprocessor = AXEPreprocessor(
+            use_clean_chunker=True, chunk_size=1000, cpu_workers=1
+        )
         pruner = AXEPruner(
             llm_pruner_client=lc,
             llm_pruner_prompt=PRUNER_PROMPT,

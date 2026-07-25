@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import multiprocessing as mp
+import threading
 import traceback
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from typing import Any, Dict, List
@@ -8,6 +9,19 @@ from typing import Any, Dict, List
 from axetract.data_types import AXEChunk, AXESample
 from axetract.preprocessor.base_preprocessor import BasePreprocessor
 from axetract.utils.html_util import chunk_html_content, clean_html, fetch_content
+
+
+def _process_is_multithreaded() -> bool:
+    """Return True if more than one thread is currently alive.
+
+    Used to decide whether ``fork()`` would be safe.  ``fork()`` in a
+    multithreaded process only carries the calling thread into the child;
+    every other thread (including LLM/CUDA/NCCL worker threads) is killed
+    mid-flight, leaving locks they held permanently held in the child and
+    routinely deadlocking.  When this returns True the preprocessor must use
+    threads instead of processes.
+    """
+    return threading.active_count() > 1
 
 
 def _chunk_worker(args: tuple) -> Dict[str, Any]:
@@ -156,7 +170,17 @@ class AXEPreprocessor(BasePreprocessor):
 
         results = [None] * n
         # choose executor class and max_workers
+        #
+        # NOTE: ProcessPoolExecutor uses fork() on Linux.  fork() in a
+        # multithreaded process is unsafe: only the calling thread survives
+        # in the child, while every other thread (LLM/CUDA/NCCL workers,
+        # the pipeline's stage threads, etc.) is killed holding whatever
+        # locks they held — the child then deadlocks waiting for those
+        # locks.  Once the LLM client (vLLM/HF) is constructed the process
+        # is always multithreaded, so we must fall back to threads.
         use_processes = bool(self.cpu_workers and self.cpu_workers > 1)
+        if use_processes and _process_is_multithreaded():
+            use_processes = False
         executor_cls = ProcessPoolExecutor if use_processes else ThreadPoolExecutor
 
         if use_processes:

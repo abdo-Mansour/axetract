@@ -6,6 +6,7 @@ import torch
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from axetract.data_types import TokenUsage
 from axetract.llm.base_client import BaseClient
 from axetract.llm.llm_utils import format_prompt_with_thinking
 
@@ -297,6 +298,13 @@ class HuggingFaceClient(BaseClient):
         # ═══════════════════════════════════════════════════════════════
         ordered_tokens = [raw_generated[i] for i in range(len(prompts))]
         all_results = self.tokenizer.batch_decode(ordered_tokens, skip_special_tokens=True)
+
+        # Record real token usage: prompt tokens = sum of pre-tokenized
+        # input lengths; completion tokens = sum of generated token counts.
+        usage = TokenUsage()
+        usage.prompt_tokens = sum(token_lengths)
+        usage.completion_tokens = sum(len(toks) for toks in ordered_tokens if toks)
+        self.last_usage = usage
 
         return all_results
 

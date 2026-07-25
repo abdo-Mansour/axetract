@@ -16,7 +16,7 @@ import resource
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple, Type
+from typing import Any, Callable, Dict, List, Optional, Type
 
 from pydantic import BaseModel
 
@@ -203,6 +203,14 @@ class GPUResourceSampler:
     calls — are still measured.  Without this fallback, vLLM-backed runs
     report ``peak_vram_mb=0`` even when the GPU is fully occupied.
 
+    VRAM is read via **NVML** (``pynvml``) when available — the same driver
+    API that ``nvidia-smi`` and the OS task manager use.  This is more
+    reliable than ``torch.cuda.mem_get_info`` during vLLM runs, where CUDA
+    graph capture can make the torch view return stale values.  NVML also
+    reports the **process-lifetime** peak (the model + KV-cache reserved at
+    engine construction, before sampling starts), so the reported peak
+    matches what the OS shows.
+
     Attributes:
         util_samples (List[float]): Sampled utilization percentages.
         vram_samples (List[int]): Sampled used-VRAM byte counts.
@@ -217,6 +225,19 @@ class GPUResourceSampler:
         self._thread: Optional[threading.Thread] = None
         self._torch = None
         self._device_index: int = 0
+        # NVML handle — preferred VRAM source (matches nvidia-smi / task manager).
+        self._nvml_handle = None
+        self._nvml_initialized = False
+        try:
+            import pynvml
+
+            pynvml.nvmlInit()
+            self._nvml_handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+            self._nvml_initialized = True
+        except Exception:
+            # pynvml unavailable — fall back to torch.cuda.mem_get_info.
+            self._nvml_handle = None
+            self._nvml_initialized = False
         try:
             import torch
 
@@ -234,7 +255,34 @@ class GPUResourceSampler:
     @property
     def available(self) -> bool:
         """Whether GPU monitoring is active."""
-        return self._torch is not None
+        return self._torch is not None or self._nvml_initialized
+
+    def _read_used_vram_bytes(self) -> Optional[int]:
+        """Read current used VRAM in bytes, preferring NVML.
+
+        Returns:
+            Optional[int]: Used VRAM bytes, or ``None`` if unreadable.
+        """
+        # NVML first — it is the source nvidia-smi / task manager use and
+        # is not affected by vLLM's CUDA graph capture.
+        if self._nvml_handle is not None:
+            try:
+                import pynvml
+
+                info = pynvml.nvmlDeviceGetMemoryInfo(self._nvml_handle)
+                return int(info.used)
+            except Exception:
+                pass
+        # Fallback: torch driver-level view.
+        if self._torch is not None:
+            try:
+                free_b, total_b = self._torch.cuda.mem_get_info(self._device_index)
+                used_b = int(total_b) - int(free_b)
+                if used_b > 0:
+                    return used_b
+            except Exception:
+                pass
+        return None
 
     def start(self) -> None:
         """Begin sampling GPU utilization and tracking peak VRAM."""
@@ -250,6 +298,13 @@ class GPUResourceSampler:
             self._torch.cuda.reset_peak_memory_stats(self._device_index)
         except Exception:
             pass
+        # Capture the baseline VRAM at start (the model + KV-cache are
+        # already loaded by this point) so the process-lifetime peak is
+        # never lost even if sampling misses it.
+        baseline = self._read_used_vram_bytes()
+        if baseline is not None:
+            self.vram_samples.append(baseline)
+            self.peak_vram_bytes = baseline
         self._thread = threading.Thread(target=self._poll, daemon=True)
         self._thread.start()
 
@@ -266,6 +321,11 @@ class GPUResourceSampler:
         if self._thread is not None:
             self._thread.join(timeout=2.0)
             self._thread = None
+        # One final read in case the peak happened between the last poll
+        # and stop().
+        final = self._read_used_vram_bytes()
+        if final is not None:
+            self.vram_samples.append(final)
         driver_peak = max(self.vram_samples) if self.vram_samples else 0
         try:
             torch_peak = self._torch.cuda.max_memory_allocated(self._device_index)
@@ -276,24 +336,31 @@ class GPUResourceSampler:
 
     def _poll(self) -> None:
         """Background loop sampling utilization and VRAM at 10ms intervals."""
-        assert self._torch is not None
         while not self._stop.is_set():
-            try:
-                util = self._torch.cuda.utilization()
-                if util is not None:
-                    self.util_samples.append(float(util))
-            except Exception:
-                pass
-            # Driver-level used VRAM = total - free.  This reports
-            # **all** allocations on the device (vLLM, other processes,
-            # framework overhead), not just PyTorch's view.
-            try:
-                free_b, total_b = self._torch.cuda.mem_get_info(self._device_index)
-                used_b = int(total_b) - int(free_b)
-                if used_b > 0:
-                    self.vram_samples.append(used_b)
-            except Exception:
-                pass
+            # GPU utilization — prefer NVML (matches nvidia-smi), fall back
+            # to torch.cuda.utilization().
+            util: Optional[float] = None
+            if self._nvml_handle is not None:
+                try:
+                    import pynvml
+
+                    rates = pynvml.nvmlDeviceGetUtilizationRates(self._nvml_handle)
+                    util = float(rates.gpu)
+                except Exception:
+                    pass
+            if util is None and self._torch is not None:
+                try:
+                    u = self._torch.cuda.utilization()
+                    if u is not None:
+                        util = float(u)
+                except Exception:
+                    pass
+            if util is not None:
+                self.util_samples.append(util)
+            # Driver-level used VRAM (NVML preferred).
+            used_b = self._read_used_vram_bytes()
+            if used_b is not None and used_b > 0:
+                self.vram_samples.append(used_b)
             time.sleep(0.01)
 
 
@@ -434,6 +501,14 @@ def run_config(
     success_count = 0
     total_count = 0
     output_tokens_total = 0
+    # Real LLM token usage (reported by the backend), accumulated across
+    # all repeats.  Split by stage so the pruner's contribution is visible.
+    llm_prompt_tokens_total = 0
+    llm_completion_tokens_total = 0
+    pruner_prompt_tokens_total = 0
+    pruner_completion_tokens_total = 0
+    extractor_prompt_tokens_total = 0
+    extractor_completion_tokens_total = 0
 
     for rep in range(repeats):
         if collector is not None:
@@ -460,6 +535,10 @@ def run_config(
         # Count successes and estimate output tokens.
         rep_success = 0
         rep_output_tokens = 0
+        rep_pruner_prompt_tokens = 0
+        rep_pruner_completion_tokens = 0
+        rep_extractor_prompt_tokens = 0
+        rep_extractor_completion_tokens = 0
         for r in results:
             total_count += 1
             if r.status == Status.SUCCESS:
@@ -474,7 +553,23 @@ def run_config(
             pred_str = raw if raw is not None else r.prediction
             pred_str = str(pred_str) if pred_str else ""
             rep_output_tokens += _estimate_tokens(pred_str)
+
+            # Real LLM token usage (reported by the backend).
+            pu = getattr(r, "pruner_usage", None)
+            eu = getattr(r, "extractor_usage", None)
+            if pu is not None:
+                rep_pruner_prompt_tokens += pu.prompt_tokens
+                rep_pruner_completion_tokens += pu.completion_tokens
+            if eu is not None:
+                rep_extractor_prompt_tokens += eu.prompt_tokens
+                rep_extractor_completion_tokens += eu.completion_tokens
         output_tokens_total += rep_output_tokens
+        llm_prompt_tokens_total += rep_pruner_prompt_tokens + rep_extractor_prompt_tokens
+        llm_completion_tokens_total += rep_pruner_completion_tokens + rep_extractor_completion_tokens
+        pruner_prompt_tokens_total += rep_pruner_prompt_tokens
+        pruner_completion_tokens_total += rep_pruner_completion_tokens
+        extractor_prompt_tokens_total += rep_extractor_prompt_tokens
+        extractor_completion_tokens_total += rep_extractor_completion_tokens
 
         logger.info(
             "Repeat %d/%d done in %.2fs (success=%d/%d)",
@@ -493,6 +588,12 @@ def run_config(
                 "total_count": len(results),
                 "output_tokens": rep_output_tokens,
                 "stage_events": stage_events,
+                "llm_prompt_tokens": rep_pruner_prompt_tokens + rep_extractor_prompt_tokens,
+                "llm_completion_tokens": rep_pruner_completion_tokens + rep_extractor_completion_tokens,
+                "pruner_prompt_tokens": rep_pruner_prompt_tokens,
+                "pruner_completion_tokens": rep_pruner_completion_tokens,
+                "extractor_prompt_tokens": rep_extractor_prompt_tokens,
+                "extractor_completion_tokens": rep_extractor_completion_tokens,
             }
         )
 
@@ -529,4 +630,11 @@ def run_config(
         "total_count": total_count,
         "peak_rss_kb": peak_rss_kb,
         "gpu": gpu_info,
+        # Real LLM token usage (reported by the backend), summed across repeats.
+        "llm_prompt_tokens_total": llm_prompt_tokens_total,
+        "llm_completion_tokens_total": llm_completion_tokens_total,
+        "pruner_prompt_tokens_total": pruner_prompt_tokens_total,
+        "pruner_completion_tokens_total": pruner_completion_tokens_total,
+        "extractor_prompt_tokens_total": extractor_prompt_tokens_total,
+        "extractor_completion_tokens_total": extractor_completion_tokens_total,
     }

@@ -2,9 +2,19 @@ from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Callable, Iterable, List, Optional
 
+from axetract.data_types import TokenUsage
+
 
 class BaseClient(ABC):
-    """Abstract base class for calling LLMs across any backend."""
+    """Abstract base class for calling LLMs across any backend.
+
+    Subclasses that perform real inference (vLLM, HuggingFace, LiteLLM)
+    populate :attr:`last_usage` after every :meth:`call_batch` /
+    :meth:`call_api` invocation with the prompt/completion token counts
+    reported by the backend.  This lets the pruner and extractor accumulate
+    true LLM token usage onto :class:`AXESample` objects for benchmarking
+    and cost estimation.
+    """
 
     def __init__(self, config: Optional[dict] = None):
         """Initialize the LLM client.
@@ -13,6 +23,10 @@ class BaseClient(ABC):
             config (Optional[dict]): Backend-specific configuration.
         """
         self.config = config or {}
+        # Most recent token usage from a call_batch/call_api call.
+        # Thread-safe: callers that fan out concurrently should read this
+        # immediately after their own (locked) call.
+        self.last_usage: TokenUsage = TokenUsage()
 
     @abstractmethod
     def call_api(self, prompt: str, adapter_name: Optional[str] = None, **kwargs) -> str:

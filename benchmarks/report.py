@@ -174,6 +174,49 @@ def to_markdown_full(
     parts.append("\n".join(lines))
     parts.append("")
 
+    # ── Token usage & totals (for cost estimation) ──
+    parts.append("## Token Usage & Totals\n")
+    parts.append(
+        "Real LLM token counts as reported by the backend (post-preprocessing "
+        "/ post-pruning), plus totals across all repeats. "
+        "`Input (raw)` is the char/4 estimate over the original HTML "
+        "(before preprocessing); `LLM in` / `LLM out` are the tokens the "
+        "model actually received / generated.\n"
+    )
+    tok_headers = [
+        "Config",
+        "Input (raw)",
+        "LLM in",
+        "LLM out",
+        "Pruner in",
+        "Pruner out",
+        "Extract in",
+        "Extract out",
+        "LLM tok/s",
+        "Total time (s)",
+    ]
+    lines = [
+        "| " + " | ".join(tok_headers) + " |",
+        "|" + "|".join(["---"] * len(tok_headers)) + "|",
+    ]
+    for i, m in enumerate(metrics_list):
+        label = config_labels[i] if config_labels else f"run-{i}"
+        row = [
+            label,
+            f"{m.get('input_tokens_total', 0):,}",
+            f"{m.get('llm_prompt_tokens_total', 0):,}",
+            f"{m.get('llm_completion_tokens_total', 0):,}",
+            f"{m.get('pruner_prompt_tokens_total', 0):,}",
+            f"{m.get('pruner_completion_tokens_total', 0):,}",
+            f"{m.get('extractor_prompt_tokens_total', 0):,}",
+            f"{m.get('extractor_completion_tokens_total', 0):,}",
+            _fmt(m.get("llm_tokens_per_s", 0.0), precision=0),
+            _fmt(m.get("total_wall_s", 0.0), precision=2),
+        ]
+        lines.append("| " + " | ".join(row) + " |")
+    parts.append("\n".join(lines))
+    parts.append("")
+
     # Cold start.
     parts.append("## Cold Start (warmup)\n")
     warmup_headers = ["Config", "Warmup (s)"]

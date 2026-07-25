@@ -193,6 +193,7 @@ def _bar_chart(
     y_unit: str = "",
     value_fmt: Optional[callable] = None,
     horizontal: bool = False,
+    stacked: bool = False,
 ) -> str:
     """Render a grouped/stacked bar chart as inline SVG.
 
@@ -204,6 +205,8 @@ def _bar_chart(
         y_unit: Unit suffix for tick labels.
         value_fmt: Optional callable(value)->str for in-bar labels.
         horizontal: If True, draw horizontal bars (categories on y-axis).
+        stacked: If True, stack series within each category instead of
+            grouping them side-by-side.
 
     Returns:
         SVG string.
@@ -216,7 +219,12 @@ def _bar_chart(
     all_vals = [v for s in series for v in s["values"]]
     if not all_vals:
         return '<div class="chart-empty">No data.</div>'
-    y_max = max(all_vals) if all_vals else 1.0
+    if stacked:
+        # y_max is the max stacked sum across categories.
+        stack_sums = [sum(s["values"][ci] for s in series) for ci in range(n_cats)]
+        y_max = max(stack_sums) if stack_sums else 1.0
+    else:
+        y_max = max(all_vals) if all_vals else 1.0
     y_min = min(0.0, min(all_vals))
     if y_max == y_min:
         y_max = y_min + 1.0
@@ -280,7 +288,7 @@ def _bar_chart(
     # Bars.
     if horizontal:
         cat_h = plot_h / n_cats
-        bar_h = (cat_h - 6) / n_series
+        bar_h = (cat_h - 6) / (1 if stacked else n_series)
         for ci, cat in enumerate(categories):
             cy = margin["t"] + ci * cat_h + 3
             # Category label.
@@ -289,42 +297,80 @@ def _bar_chart(
                 f'fill="{TEXT}" font-size="11" text-anchor="end">'
                 f'{_esc(_short_label(cat, 22))}</text>'
             )
-            for si, s in enumerate(series):
-                v = s["values"][ci]
-                by = cy + si * bar_h
-                bx_end = x_to_px(v)
-                bw = bx_end - margin["l"]
-                parts.append(
-                    f'<rect x="{margin["l"]}" y="{by:.1f}" width="{bw:.1f}" '
-                    f'height="{bar_h - 2:.1f}" fill="{s["color"]}" rx="2" />'
-                )
-                if value_fmt and bw > 30:
+            if stacked:
+                bx_start = margin["l"]
+                for si, s in enumerate(series):
+                    v = s["values"][ci]
+                    by = cy + 0 * bar_h
+                    bx_end = x_to_px(v)
+                    bw = bx_end - margin["l"]
                     parts.append(
-                        f'<text x="{bx_end - 6:.1f}" y="{by + bar_h / 2 + 3:.1f}" '
-                        f'fill="{TEXT}" font-size="10" text-anchor="end">'
-                        f'{_esc(value_fmt(v))}</text>'
+                        f'<rect x="{bx_start:.1f}" y="{by:.1f}" width="{max(0.0, bw):.1f}" '
+                        f'height="{bar_h - 2:.1f}" fill="{s["color"]}" rx="2" />'
                     )
+                    bx_start += max(0.0, bw)
+                    if value_fmt and bw > 30:
+                        parts.append(
+                            f'<text x="{bx_start - 6:.1f}" y="{by + bar_h / 2 + 3:.1f}" '
+                            f'fill="{TEXT}" font-size="10" text-anchor="end">'
+                            f'{_esc(value_fmt(v))}</text>'
+                        )
+            else:
+                for si, s in enumerate(series):
+                    v = s["values"][ci]
+                    by = cy + si * bar_h
+                    bx_end = x_to_px(v)
+                    bw = bx_end - margin["l"]
+                    parts.append(
+                        f'<rect x="{margin["l"]}" y="{by:.1f}" width="{bw:.1f}" '
+                        f'height="{bar_h - 2:.1f}" fill="{s["color"]}" rx="2" />'
+                    )
+                    if value_fmt and bw > 30:
+                        parts.append(
+                            f'<text x="{bx_end - 6:.1f}" y="{by + bar_h / 2 + 3:.1f}" '
+                            f'fill="{TEXT}" font-size="10" text-anchor="end">'
+                            f'{_esc(value_fmt(v))}</text>'
+                        )
     else:
         cat_w = plot_w / n_cats
         group_w = cat_w * 0.7
-        bar_w = group_w / n_series
+        bar_w = group_w / (1 if stacked else n_series)
         for ci, cat in enumerate(categories):
             gx = margin["l"] + ci * cat_w + (cat_w - group_w) / 2
-            for si, s in enumerate(series):
-                v = s["values"][ci]
-                by = y_to_px(v)
-                bh = (margin["t"] + plot_h) - by
-                bx = gx + si * bar_w
-                parts.append(
-                    f'<rect x="{bx:.1f}" y="{by:.1f}" width="{bar_w - 2:.1f}" '
-                    f'height="{max(0.0, bh):.1f}" fill="{s["color"]}" rx="2" />'
-                )
-                if value_fmt and bh > 14:
+            if stacked:
+                stack_top = margin["t"] + plot_h  # bottom of plot
+                for si, s in enumerate(series):
+                    v = s["values"][ci]
+                    by = y_to_px(v)
+                    bh = stack_top - by
+                    bx = gx
                     parts.append(
-                        f'<text x="{bx + bar_w / 2:.1f}" y="{by - 4:.1f}" '
-                        f'fill="{TEXT_DIM}" font-size="10" text-anchor="middle">'
-                        f'{_esc(value_fmt(v))}</text>'
+                        f'<rect x="{bx:.1f}" y="{by:.1f}" width="{bar_w - 2:.1f}" '
+                        f'height="{max(0.0, bh):.1f}" fill="{s["color"]}" rx="2" />'
                     )
+                    stack_top = by
+                    if value_fmt and bh > 14:
+                        parts.append(
+                            f'<text x="{bx + bar_w / 2:.1f}" y="{by - 4:.1f}" '
+                            f'fill="{TEXT_DIM}" font-size="10" text-anchor="middle">'
+                            f'{_esc(value_fmt(v))}</text>'
+                        )
+            else:
+                for si, s in enumerate(series):
+                    v = s["values"][ci]
+                    by = y_to_px(v)
+                    bh = (margin["t"] + plot_h) - by
+                    bx = gx + si * bar_w
+                    parts.append(
+                        f'<rect x="{bx:.1f}" y="{by:.1f}" width="{bar_w - 2:.1f}" '
+                        f'height="{max(0.0, bh):.1f}" fill="{s["color"]}" rx="2" />'
+                    )
+                    if value_fmt and bh > 14:
+                        parts.append(
+                            f'<text x="{bx + bar_w / 2:.1f}" y="{by - 4:.1f}" '
+                            f'fill="{TEXT_DIM}" font-size="10" text-anchor="middle">'
+                            f'{_esc(value_fmt(v))}</text>'
+                        )
             # Category label.
             parts.append(
                 f'<text x="{margin["l"] + ci * cat_w + cat_w / 2:.1f}" '
@@ -703,6 +749,126 @@ def _interp_overlap(metrics_list: List[Dict[str, Any]]) -> List[str]:
     return bullets
 
 
+def _token_usage_section(
+    metrics_list: List[Dict[str, Any]],
+    labels: List[str],
+    run_labels: List[str],
+) -> str:
+    """Render the Token Usage & Totals section (for cost estimation).
+
+    Shows real LLM token counts (post-preprocessing, as reported by the
+    backend) split by pruner vs. extractor, plus the raw char/4 input
+    estimate, totals, and per-config LLM token rates.
+    """
+    if not metrics_list:
+        return ""
+
+    # Totals across all configs.
+    total_raw_in = sum(int(m.get("input_tokens_total") or 0) for m in metrics_list)
+    total_llm_in = sum(int(m.get("llm_prompt_tokens_total") or 0) for m in metrics_list)
+    total_llm_out = sum(int(m.get("llm_completion_tokens_total") or 0) for m in metrics_list)
+    total_pruner_in = sum(int(m.get("pruner_prompt_tokens_total") or 0) for m in metrics_list)
+    total_pruner_out = sum(int(m.get("pruner_completion_tokens_total") or 0) for m in metrics_list)
+    total_extract_in = sum(int(m.get("extractor_prompt_tokens_total") or 0) for m in metrics_list)
+    total_extract_out = sum(int(m.get("extractor_completion_tokens_total") or 0) for m in metrics_list)
+    total_time = sum(_safe_float(m.get("total_wall_s")) for m in metrics_list)
+
+    # Reduction ratio: how much preprocessing+pruning cuts tokens vs raw HTML.
+    reduction_pct = (
+        (1.0 - total_llm_in / total_raw_in) * 100 if total_raw_in > 0 else 0.0
+    )
+
+    # Per-config table.
+    headers = [
+        "Run", "Config", "Input (raw)", "LLM in", "LLM out",
+        "Pruner in", "Pruner out", "Extract in", "Extract out",
+        "LLM tok/s", "Total time (s)",
+    ]
+    rows_html: List[str] = []
+    for m, lbl, rl in zip(metrics_list, labels, run_labels):
+        rows_html.append(
+            "<tr>"
+            f"<td>{_esc(rl)}</td>"
+            f"<td>{_esc(lbl)}</td>"
+            f"<td>{int(m.get('input_tokens_total') or 0):,}</td>"
+            f"<td>{int(m.get('llm_prompt_tokens_total') or 0):,}</td>"
+            f"<td>{int(m.get('llm_completion_tokens_total') or 0):,}</td>"
+            f"<td>{int(m.get('pruner_prompt_tokens_total') or 0):,}</td>"
+            f"<td>{int(m.get('pruner_completion_tokens_total') or 0):,}</td>"
+            f"<td>{int(m.get('extractor_prompt_tokens_total') or 0):,}</td>"
+            f"<td>{int(m.get('extractor_completion_tokens_total') or 0):,}</td>"
+            f"<td>{_safe_float(m.get('llm_tokens_per_s')):,.0f}</td>"
+            f"<td>{_safe_float(m.get('total_wall_s')):.2f}</td>"
+            "</tr>"
+        )
+    # Totals row.
+    rows_html.append(
+        '<tr class="totals-row">'
+        "<td colspan=\"2\"><strong>Totals</strong></td>"
+        f"<td><strong>{total_raw_in:,}</strong></td>"
+        f"<td><strong>{total_llm_in:,}</strong></td>"
+        f"<td><strong>{total_llm_out:,}</strong></td>"
+        f"<td><strong>{total_pruner_in:,}</strong></td>"
+        f"<td><strong>{total_pruner_out:,}</strong></td>"
+        f"<td><strong>{total_extract_in:,}</strong></td>"
+        f"<td><strong>{total_extract_out:,}</strong></td>"
+        f"<td>—</td>"
+        f"<td><strong>{total_time:.2f}</strong></td>"
+        "</tr>"
+    )
+
+    table_html = (
+        '<div class="table-wrap"><table class="summary-table">'
+        + "<thead><tr>" + "".join(f"<th>{_esc(h)}</th>" for h in headers) + "</tr></thead>"
+        + "<tbody>" + "".join(rows_html) + "</tbody>"
+        + "</table></div>"
+    )
+
+    # Stacked bar: pruner vs extractor token split per config.
+    cats = [f"{rl}\n{cl}" for rl, cl in zip(run_labels, labels)]
+    token_chart = _bar_chart(
+        series=[
+            {"name": "Pruner in", "color": STAGE_COLORS["prune"], "values": [int(m.get("pruner_prompt_tokens_total") or 0) for m in metrics_list]},
+            {"name": "Pruner out", "color": "#f9a26c", "values": [int(m.get("pruner_completion_tokens_total") or 0) for m in metrics_list]},
+            {"name": "Extract in", "color": STAGE_COLORS["extract"], "values": [int(m.get("extractor_prompt_tokens_total") or 0) for m in metrics_list]},
+            {"name": "Extract out", "color": "#dcb89a", "values": [int(m.get("extractor_completion_tokens_total") or 0) for m in metrics_list]},
+        ],
+        categories=cats,
+        y_label="Tokens",
+        y_unit="",
+        horizontal=True,
+        stacked=True,
+        value_fmt=lambda v: f"{v:,.0f}",
+    )
+
+    interp: List[str] = []
+    if total_raw_in > 0:
+        interp.append(
+            f"Preprocessing + pruning reduced input tokens from "
+            f"<strong>{total_raw_in:,}</strong> (raw HTML, char/4 estimate) to "
+            f"<strong>{total_llm_in:,}</strong> actually seen by the model — a "
+            f"<strong>{reduction_pct:.1f}%</strong> reduction."
+        )
+    if total_llm_out > 0:
+        interp.append(
+            f"The model generated <strong>{total_llm_out:,}</strong> completion "
+            f"tokens in total across all configs."
+        )
+    if total_pruner_in + total_pruner_out > 0:
+        pruner_share = (total_pruner_in + total_pruner_out) / max(1, total_llm_in + total_llm_out) * 100
+        interp.append(
+            f"The pruner accounted for <strong>{pruner_share:.1f}%</strong> of "
+            f"total LLM token traffic "
+            f"({total_pruner_in:,} in / {total_pruner_out:,} out)."
+        )
+
+    return (
+        '<h2 id="token-usage-heading">Token Usage &amp; Totals</h2>'
+        f"{table_html}"
+        f'{_section("LLM token split (pruner vs. extractor) per config", token_chart, interp, "tokens")}'
+    )
+
+
 def _interp_latency(metrics_list: List[Dict[str, Any]]) -> List[str]:
     bullets: List[str] = []
     if not metrics_list:
@@ -1012,18 +1178,27 @@ def _kpi_cards(metrics_list: List[Dict[str, Any]]) -> str:
         return ""
     best_p50 = min(_safe_float(m.get("latency_p50_s")) for m in metrics_list)
     best_dps = max(_safe_float(m.get("docs_per_s")) for m in metrics_list)
-    best_tps = max(_safe_float(m.get("tokens_per_s")) for m in metrics_list)
+    # Real LLM token rate (post-preprocessing tokens the model actually
+    # processed), preferred over the char/4 heuristic which inflates numbers.
+    llm_tps_vals = [_safe_float(m.get("llm_tokens_per_s")) for m in metrics_list]
+    best_llm_tps = max(llm_tps_vals) if llm_tps_vals else 0.0
     gpu_utils = [_safe_float(m.get("mean_gpu_util_pct")) for m in metrics_list if m.get("mean_gpu_util_pct") is not None]
     mean_gpu = sum(gpu_utils) / len(gpu_utils) if gpu_utils else None
     worst_success = min(_safe_float(m.get("success_rate")) for m in metrics_list)
     best_overlap = max(_safe_float(m.get("overlap_efficiency")) for m in metrics_list)
     vrams = [_safe_float(m.get("peak_vram_mb")) for m in metrics_list if m.get("peak_vram_mb")]
     peak_vram = max(vrams) if vrams else None
+    # Totals across all configs (for cost estimation).
+    total_llm_in = sum(int(m.get("llm_prompt_tokens_total") or 0) for m in metrics_list)
+    total_llm_out = sum(int(m.get("llm_completion_tokens_total") or 0) for m in metrics_list)
+    total_time = sum(_safe_float(m.get("total_wall_s")) for m in metrics_list)
 
     cards = [
         ("Best p50 latency", f"{best_p50:.3f}s", "lower is better", ACCENT),
         ("Peak throughput", f"{best_dps:.2f} docs/s", "higher is better", GOOD),
-        ("Peak token rate", f"{best_tps:,.0f} tok/s", "higher is better", ACCENT_2),
+        ("Peak LLM tok/s", f"{best_llm_tps:,.0f} tok/s", "real model tokens/s", ACCENT_2),
+        ("Total LLM tokens", f"{total_llm_in + total_llm_out:,}", f"{total_llm_in:,} in · {total_llm_out:,} out", ACCENT_3),
+        ("Total time", f"{total_time:.1f}s", f"{len(metrics_list)} config(s)", GOOD),
         ("Mean GPU util", _fmt_pct(mean_gpu) if mean_gpu is not None else "—", "higher is better", ACCENT_3),
         ("Worst success", f"{worst_success * 100:.1f}%", "higher is better", GOOD if worst_success >= 1 else BAD),
         ("Best overlap", f"{best_overlap * 100:.1f}%", "higher is better", ACCENT if best_overlap > 0 else BAD),
@@ -1184,6 +1359,12 @@ def _drilldown(
             ("Peak RSS (MB)", _fmt(m.get("peak_rss_mb"), 0)),
             ("Input tokens (total)", _fmt_int(m.get("input_tokens_total"))),
             ("Output tokens (total)", _fmt_int(m.get("output_tokens_total"))),
+            ("LLM prompt tokens (total)", _fmt_int(m.get("llm_prompt_tokens_total"))),
+            ("LLM completion tokens (total)", _fmt_int(m.get("llm_completion_tokens_total"))),
+            ("LLM tokens/s (real)", _fmt(m.get("llm_tokens_per_s"), 0)),
+            ("Pruner in / out tokens", f'{_fmt_int(m.get("pruner_prompt_tokens_total"))} / {_fmt_int(m.get("pruner_completion_tokens_total"))}'),
+            ("Extractor in / out tokens", f'{_fmt_int(m.get("extractor_prompt_tokens_total"))} / {_fmt_int(m.get("extractor_completion_tokens_total"))}'),
+            ("Total wall time (s)", _fmt(m.get("total_wall_s"), 2)),
             ("Preprocess (s)", _fmt(occ.get("preprocess"), 4)),
             ("Prune (s)", _fmt(occ.get("prune"), 4)),
             ("Setup / GPU cache (s)", _fmt(occ.get("setup"), 4)),
@@ -1830,14 +2011,45 @@ def build_report(
     )
     stage_interp = _interp_stage_occupancy(metrics_list)
 
-    # 4. Stage timeline (Gantt) — first config of first run.
-    gantt_svg = '<div class="chart-empty">No stage events available.</div>'
+    # 4. Stage timeline (Gantt) — first config of first run, plus the
+    #    pruner-off twin when --pruner=both produced pairs.
+    from benchmarks.pruner_delta import (
+        canonical_key_for_label,
+        pruner_enabled_for_label,
+    )
+
+    def _events_for_raw(raw: Dict[str, Any]) -> List[Tuple[str, str, Optional[int], float]]:
+        pr = raw.get("per_repeat") or []
+        if not pr:
+            return []
+        return pr[0].get("stage_events", []) or []
+
+    gantt_blocks: List[str] = []
     if raw_runs:
-        pr = raw_runs[0][1].get("per_repeat") or []
-        if pr:
-            events = pr[0].get("stage_events", [])
-            if events:
-                gantt_svg = _gantt_chart(events, title=f"Stage Timeline — {raw_runs[0][2]} · {raw_runs[0][3]}")
+        first_m, first_raw, first_rl, first_cl = raw_runs[0]
+        ev = _events_for_raw(first_raw)
+        if ev:
+            gantt_blocks.append(
+                _gantt_chart(ev, title=f"Stage Timeline — {first_rl} · {first_cl}")
+            )
+        # When --pruner=both, also render the pruner-off twin of the first
+        # config so both timelines are visible side by side.
+        first_state = pruner_enabled_for_label(first_cl)
+        if first_state is True:
+            # Find the -pruner twin with the same canonical key.
+            canon = canonical_key_for_label(first_cl)
+            for m, raw, rl, cl in raw_runs[1:]:
+                if (
+                    pruner_enabled_for_label(cl) is False
+                    and canonical_key_for_label(cl) == canon
+                ):
+                    ev2 = _events_for_raw(raw)
+                    if ev2:
+                        gantt_blocks.append(
+                            _gantt_chart(ev2, title=f"Stage Timeline — {rl} · {cl}")
+                        )
+                    break
+    gantt_svg = "\n".join(gantt_blocks) if gantt_blocks else '<div class="chart-empty">No stage events available.</div>'
     gantt_interp = _interp_overlap(metrics_list)
 
     # 5. Overlap efficiency vs micro-batch size (line, per run).
@@ -1904,6 +2116,9 @@ def build_report(
     # ── Success section ──
     success_interp = _interp_success(metrics_list)
 
+    # ── Token usage & totals section (for cost estimation) ──
+    token_section = _token_usage_section(metrics_list, labels, flat_run_labels)
+
     # ── Pruner overhead section (only when --pruner=both produced pairs) ──
     pruner_section = _pruner_overhead_section(metrics_list, labels)
     pruner_section_html = (
@@ -1933,6 +2148,7 @@ def build_report(
 {kpi}
 <h2>Summary Table</h2>
 {table}
+{token_section}
 <h2>Latency Distribution</h2>
 {_section("Latency percentiles per config (p50 / p90 / p99)", latency_chart, latency_interp, "latency")}
 <h2>Throughput vs. Batch Size</h2>

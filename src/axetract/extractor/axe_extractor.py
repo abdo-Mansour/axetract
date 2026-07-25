@@ -103,6 +103,16 @@ class AXEExtractor(BaseExtractor):
                     logger.debug("  [QA] sample %d prompt: %s", orig_idx, qa_prompts[idx])
             qa_responses = self.llm_extractor_client.call_batch(qa_prompts, adapter_name="qa")
 
+            # Capture real token usage and assign to the corresponding samples.
+            qa_usage = getattr(self.llm_extractor_client, "last_usage", None)
+            if qa_usage is not None and qa_prompts:
+                per_prompt = qa_usage.prompt_tokens / len(qa_prompts)
+                per_comp = qa_usage.completion_tokens / len(qa_prompts)
+                for i, orig_idx in enumerate(qa_indices):
+                    samples[orig_idx].extractor_usage.add(
+                        int(round(per_prompt)), int(round(per_comp))
+                    )
+
             for original_idx, response in zip(qa_indices, qa_responses):
                 logger.debug("  [QA] sample %d response: %s", original_idx, response)
                 final_responses[original_idx] = response
@@ -117,6 +127,16 @@ class AXEExtractor(BaseExtractor):
             schema_responses = self.llm_extractor_client.call_batch(
                 schema_prompts, adapter_name="schema"
             )
+
+            # Capture real token usage and assign to the corresponding samples.
+            schema_usage = getattr(self.llm_extractor_client, "last_usage", None)
+            if schema_usage is not None and schema_prompts:
+                per_prompt = schema_usage.prompt_tokens / len(schema_prompts)
+                per_comp = schema_usage.completion_tokens / len(schema_prompts)
+                for i, orig_idx in enumerate(schema_indices):
+                    samples[orig_idx].extractor_usage.add(
+                        int(round(per_prompt)), int(round(per_comp))
+                    )
 
             for original_idx, response in zip(schema_indices, schema_responses):
                 logger.debug("  [Schema] sample %d response: %s", original_idx, response)

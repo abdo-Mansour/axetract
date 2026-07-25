@@ -350,6 +350,9 @@ class AXEPipeline:
                 error=None
                 if sample.status == Status.SUCCESS
                 else f"Encountered error/pending status: {sample.status}",
+                raw_prediction=sample.raw_prediction,
+                pruner_usage=sample.pruner_usage,
+                extractor_usage=sample.extractor_usage,
             )
             for sample in samples
         ]

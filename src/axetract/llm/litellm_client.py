@@ -1,6 +1,7 @@
 import os
 from typing import Optional
 
+from axetract.data_types import TokenUsage
 from axetract.llm.base_client import BaseClient
 from axetract.utils.llm_util import retry_on_ratelimit
 
@@ -95,4 +96,14 @@ class LiteLLMClient(BaseClient):
         litellm_args.update(kwargs)
 
         response = litellm.completion(**litellm_args)
+        # Record real token usage from the provider's usage block.
+        usage = TokenUsage()
+        try:
+            u = getattr(response, "usage", None)
+            if u is not None:
+                usage.prompt_tokens = int(getattr(u, "prompt_tokens", 0) or 0)
+                usage.completion_tokens = int(getattr(u, "completion_tokens", 0) or 0)
+        except Exception:
+            pass
+        self.last_usage = usage
         return response.choices[0].message.content

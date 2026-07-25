@@ -260,6 +260,25 @@ class AXEPruner(BasePruner):
             llm_results = self.llm_pruner_client.call_batch(prompts, adapter_name="pruner")
             logger.debug("[Pruner] Raw LLM responses: %s", llm_results)
 
+            # Capture real token usage from the backend and distribute it
+            # across samples proportional to their chunk count (each chunk
+            # produced one prompt in the batched call).
+            batch_usage = getattr(self.llm_pruner_client, "last_usage", None)
+            if batch_usage is not None and total_chunks > 0:
+                chunk_counts = [len(s.chunks) for s in batch]
+                total_count_sum = sum(chunk_counts) or 1
+                for sample, cc in zip(batch, chunk_counts):
+                    share = cc / total_count_sum
+                    sample.pruner_usage.add(
+                        int(round(batch_usage.prompt_tokens * share)),
+                        int(round(batch_usage.completion_tokens * share)),
+                    )
+                # Correct rounding drift on the last sample so the sum is exact.
+                drift_p = batch_usage.prompt_tokens - sum(s.pruner_usage.prompt_tokens for s in batch)
+                drift_c = batch_usage.completion_tokens - sum(s.pruner_usage.completion_tokens for s in batch)
+                if batch:
+                    batch[-1].pruner_usage.add(drift_p, drift_c)
+
             # Phase 3: Parse LLM Responses (light CPU work)
             # Pre-compiled regex for index list extraction
             index_list_re = re.compile(r"\[(.*?)\]", re.DOTALL)

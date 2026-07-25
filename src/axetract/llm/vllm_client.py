@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 from typing import Any, Dict, Iterable, List, Optional
 
+from axetract.data_types import TokenUsage
 from axetract.llm.base_client import BaseClient
 from axetract.llm.llm_utils import format_prompt_with_thinking
 
@@ -131,6 +132,32 @@ class LocalVLLMClient(BaseClient):
                 lora_request=lora_req,
                 tokenization_kwargs=tokenization_kwargs,
             )
+
+        # Accumulate real token usage from vLLM's per-request metrics.
+        # ``RequestOutput.prompt_token_ids`` holds the tokenized prompt;
+        # ``CompletionOutput.token_ids`` holds the generated tokens.
+        usage = TokenUsage()
+        for out in outputs:
+            try:
+                prompt_ids = getattr(out, "prompt_token_ids", None)
+                if prompt_ids is not None:
+                    usage.prompt_tokens += len(prompt_ids)
+                else:
+                    # Fallback: vLLM < 0.5 may expose metrics instead.
+                    metrics = getattr(out, "metrics", None)
+                    if metrics is not None:
+                        npt = getattr(metrics, "num_prompt_tokens", None)
+                        if npt:
+                            usage.prompt_tokens += int(npt)
+            except Exception:
+                pass
+            try:
+                for comp in out.outputs:
+                    usage.completion_tokens += len(comp.token_ids)
+            except Exception:
+                pass
+        self.last_usage = usage
+
         return [out.outputs[0].text for out in outputs]
 
     def call_api(self, prompt: str, adapter_name: str = None, thinking=False, **kwargs) -> str:

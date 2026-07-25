@@ -165,6 +165,32 @@ def compute_run_metrics(raw: Dict[str, Any]) -> Dict[str, Any]:
         else 0.0
     )
 
+    # Real LLM token usage (reported by the backend), summed across repeats.
+    llm_prompt_tokens_total = raw.get("llm_prompt_tokens_total", 0)
+    llm_completion_tokens_total = raw.get("llm_completion_tokens_total", 0)
+    pruner_prompt_tokens_total = raw.get("pruner_prompt_tokens_total", 0)
+    pruner_completion_tokens_total = raw.get("pruner_completion_tokens_total", 0)
+    extractor_prompt_tokens_total = raw.get("extractor_prompt_tokens_total", 0)
+    extractor_completion_tokens_total = raw.get("extractor_completion_tokens_total", 0)
+    llm_tokens_total = llm_prompt_tokens_total + llm_completion_tokens_total
+
+    # Real LLM token rates (tokens the model actually processed / mean wall).
+    # These reflect post-preprocessing / post-pruning token counts, unlike
+    # ``tokens_per_s`` which uses the char/4 heuristic over raw HTML.
+    llm_tokens_per_s = llm_tokens_total / mean_wall if mean_wall > 0 else 0.0
+    llm_prompt_tokens_per_s = (
+        llm_prompt_tokens_total / mean_wall if mean_wall > 0 else 0.0
+    )
+    llm_completion_tokens_per_s = (
+        llm_completion_tokens_total / mean_wall if mean_wall > 0 else 0.0
+    )
+    # Output-token throughput (completion tokens / wall) — the rate at which
+    # the model generates tokens, useful for cost/latency estimation.
+    llm_output_tokens_per_s = llm_completion_tokens_per_s
+
+    # Total wall time across all repeats (for cost estimation).
+    total_wall_s = sum(wall_times)
+
     # Time per page / per 1K input tokens.
     time_per_page = mean_wall / batch_size if batch_size > 0 else 0.0
     time_per_1k_input = (
@@ -227,6 +253,22 @@ def compute_run_metrics(raw: Dict[str, Any]) -> Dict[str, Any]:
         # Raw token totals (for reference)
         "input_tokens_total": input_tokens_total,
         "output_tokens_total": output_tokens_total,
+        # Real LLM token usage (reported by the backend)
+        "llm_prompt_tokens_total": llm_prompt_tokens_total,
+        "llm_completion_tokens_total": llm_completion_tokens_total,
+        "llm_tokens_total": llm_tokens_total,
+        "pruner_prompt_tokens_total": pruner_prompt_tokens_total,
+        "pruner_completion_tokens_total": pruner_completion_tokens_total,
+        "extractor_prompt_tokens_total": extractor_prompt_tokens_total,
+        "extractor_completion_tokens_total": extractor_completion_tokens_total,
+        # Real LLM token rates (post-preprocessing tokens / mean wall)
+        "llm_tokens_per_s": llm_tokens_per_s,
+        "llm_prompt_tokens_per_s": llm_prompt_tokens_per_s,
+        "llm_completion_tokens_per_s": llm_completion_tokens_per_s,
+        "llm_output_tokens_per_s": llm_output_tokens_per_s,
+        # Totals (for cost estimation)
+        "total_wall_s": total_wall_s,
+        "total_repeats": repeats,
     }
 
 

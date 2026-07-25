@@ -38,7 +38,12 @@ class AXESample(BaseModel):
         chunks (List[AXEChunk]): List of processed HTML chunks.
         original_html (str): The original, uncleaned HTML content.
         current_html (str): The current state of HTML (e.g., after cleaning or pruning).
-        prediction (Optional[Union[str, dict, Any]]): The LLM's raw output or parsed JSON.
+        prediction (Optional[Union[str, dict, Any]]): The LLM's raw output or
+            parsed JSON.  Overwritten by the postprocessor with the parsed
+            structured result.
+        raw_prediction (Optional[Union[str, Any]]): The raw LLM completion as
+            returned by the extractor, preserved across postprocessing so
+            benchmarking can measure true LLM output size.
         xpaths (Optional[dict]): Map of extracted fields to their source XPaths.
         status (Status): Current processing status.
     """
@@ -52,6 +57,7 @@ class AXESample(BaseModel):
     original_html: str = ""
     current_html: str = ""
     prediction: Optional[Union[str, dict, Any]] = None
+    raw_prediction: Optional[Union[str, Any]] = None
     xpaths: Optional[dict] = None
 
     status: Status = Status.PENDING

@@ -465,7 +465,14 @@ def run_config(
             if r.status == Status.SUCCESS:
                 success_count += 1
                 rep_success += 1
-            pred_str = str(r.prediction) if r.prediction else ""
+            # Prefer the raw LLM output (pre-postprocess) so the token
+            # estimate reflects what the model actually generated, not the
+            # postprocessor's collapsed structured result.  Fall back to
+            # `prediction` for older/mocked samples that don't set
+            # `raw_prediction`.
+            raw = getattr(r, "raw_prediction", None)
+            pred_str = raw if raw is not None else r.prediction
+            pred_str = str(pred_str) if pred_str else ""
             rep_output_tokens += _estimate_tokens(pred_str)
         output_tokens_total += rep_output_tokens
 

@@ -124,6 +124,9 @@ class AXEExtractor(BaseExtractor):
 
         for sample, response in zip(samples, final_responses):
             sample.prediction = response
+            # Preserve the raw LLM output so benchmarking can measure true
+            # LLM output size (the postprocessor overwrites `prediction`).
+            sample.raw_prediction = response
             sample.status = Status.SUCCESS if response is not None else Status.FAILED
             logger.debug("  [Extractor] sample %s final prediction: %s", sample.id, response)
         return samples

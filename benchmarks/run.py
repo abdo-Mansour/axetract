@@ -150,7 +150,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument(
         "--no-mb-sweep",
         action="store_true",
-        help="Fix micro-batch size at 4 (same as the default single value).",
+        help="Use only the first micro-batch size (no sweep).",
     )
     parser.add_argument(
         "--repeats",
@@ -241,7 +241,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     # ── Parse sweep parameters ──
     batch_sizes = _parse_int_list(args.batch_sizes)
     if args.no_mb_sweep:
-        mb_sizes = [4]
+        mb_sizes = _parse_int_list(args.micro_batch_sizes)[:1]
     else:
         mb_sizes = _parse_int_list(args.micro_batch_sizes)
 

@@ -358,10 +358,10 @@ def merge_html_chunks(chunks: List[str], fallback_content: str) -> str:
                     continue
                 merged_list.append((c["xpath"], c["content"]))
 
-        if len(merged_list) == 0:
-            logger.warning("FALLBACK USED")
-            final_content = clean_html(fallback_content)
-            return final_content
+        # if len(merged_list) == 0:
+        #     logger.warning("FALLBACK USED")
+        #     final_content = clean_html(fallback_content)
+        #     return final_content
         # print("MERGINGGG")
         # print(merged_list)
         final_html = merge_xpaths_to_html(merged_list)

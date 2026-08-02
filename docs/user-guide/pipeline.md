@@ -54,6 +54,10 @@ results = pipeline.extract(
 )
 ```
 
+`query` and `schema` are mutually exclusive. If both are provided, `schema` takes
+precedence and `query` is ignored with a warning. To use natural-language guidance
+with structured output, include that guidance in the schema's field descriptions.
+
 ### `extract_batch`
 
 For heterogeneous batches where each item has its own query or schema, pass a list of `AXESample` objects.

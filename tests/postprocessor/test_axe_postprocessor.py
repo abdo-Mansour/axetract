@@ -129,13 +129,19 @@ class TestSafeExtractWorker:
 
 class TestAXEPostprocessor:
     def _make_sample(
-        self, sample_id="1", prediction='{"price": "$10"}', query=None, current_html=""
+        self,
+        sample_id="1",
+        prediction='{"price": "$10"}',
+        query=None,
+        schema_model=None,
+        current_html="",
     ):
         s = AXESample(
             id=sample_id,
             content="<p>content</p>",
             is_content_url=False,
             query=query,
+            schema_model=schema_model,
             current_html=current_html,
         )
         s.prediction = prediction
@@ -173,6 +179,18 @@ class TestAXEPostprocessor:
         ]
         results = pp(samples)
         assert len(results) == 3
+
+    def test_schema_takes_precedence_over_query_for_parsing(self):
+        pp = AXEPostprocessor(exact_extraction=False)
+        sample = self._make_sample(
+            prediction='{"price": "$10"}',
+            query="Extract just the price",
+            schema_model={"price": "string"},
+        )
+
+        results = pp([sample])
+
+        assert results[0].prediction == {"price": "$10"}
 
     def test_non_string_prediction_converted(self):
         """A non-string prediction (e.g., already a dict) should be str-coerced."""

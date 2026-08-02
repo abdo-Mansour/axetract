@@ -237,7 +237,7 @@ class AXEPruner(BasePruner):
         worker_args = []
         for sample in batch:
             for chunk in sample.chunks:
-                worker_args.append((chunk.content, sample.query or sample.schema_model, template_str))
+                worker_args.append((chunk.content, sample.effective_query, template_str))
 
         max_workers = getattr(self, "num_workers", None) or min(32, (os.cpu_count() or 1) * 4)
         total_chunks = len(worker_args)

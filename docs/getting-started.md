@@ -63,6 +63,10 @@ product = Product(**result.prediction)
 print(product.name)
 ```
 
+`query` and `schema` are mutually exclusive. If both are provided, `schema` takes
+precedence and `query` is ignored with a warning. To use natural-language guidance
+with structured output, include that guidance in the schema's field descriptions.
+
 ## Next Steps
 
 - Explore the [Architecture](user-guide/architecture.md) to understand how it works.

@@ -173,7 +173,7 @@ class AXEPostprocessor(BasePostprocessor):
         responses = [
             s.prediction if isinstance(s.prediction, str) else str(s.prediction) for s in samples
         ]
-        queries = [s.query or s.schema_model for s in samples]
+        queries = [s.effective_query for s in samples]
 
         # We perform exact_extraction matching using the current HTML processing output
         contents = [s.current_html for s in samples]

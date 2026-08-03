@@ -52,8 +52,16 @@ class AXEExtractor(BaseExtractor):
 
     def _generate_output(self, samples: List[AXESample]) -> List[AXESample]:
 
-        def build_prompt(data):
-            query = data.query or data.schema_model
+        def select_query(data):
+            if data.query is not None and data.schema_model is not None:
+                logger.warning(
+                    "Both query and schema_model are set for sample %s. "
+                    "schema_model takes precedence; query will be ignored.",
+                    data.id,
+                )
+            return data.effective_query
+
+        def build_prompt(data, query):
             content = data.current_html
 
             # Convert Query/Schema to appropriate string if it is a dictionary or Pydantic model
@@ -72,8 +80,8 @@ class AXEExtractor(BaseExtractor):
             else:
                 return self.query_prompt_template.format(query=query, content=content)
 
-        prompts = [build_prompt(sample) for sample in samples]
-        queries = [sample.query or sample.schema_model for sample in samples]
+        queries = [select_query(sample) for sample in samples]
+        prompts = [build_prompt(sample, query) for sample, query in zip(samples, queries)]
 
         # Storage for split batches
         qa_indices = []

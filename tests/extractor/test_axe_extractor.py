@@ -1,5 +1,6 @@
 """Unit tests for AXEExtractor."""
 
+import logging
 from unittest.mock import MagicMock
 
 from pydantic import BaseModel
@@ -143,6 +144,28 @@ class TestAXEExtractorGenerateOutput:
         results = extractor._generate_output([sample])
 
         assert results[0].status == Status.SUCCESS
+
+    def test_schema_takes_precedence_when_query_is_also_set(self, caplog):
+        extractor, mock_llm = self._make_extractor()
+        mock_llm.call_batch.return_value = ['{"price": "$10"}']
+        sample = _make_sample(
+            query="Extract just the price",
+            schema_model={"price": "string"},
+        )
+
+        with caplog.at_level(logging.WARNING):
+            results = extractor._generate_output([sample])
+
+        mock_llm.call_batch.assert_called_once_with(
+            ['Schema: {"price": "string"}\nContent: <p>Test content</p>'],
+            adapter_name="schema",
+        )
+        assert results[0].status == Status.SUCCESS
+        assert caplog.messages == [
+            "Both query and schema_model are set for sample 1. "
+            "schema_model takes precedence; query will be ignored."
+        ]
+        assert "Extract just the price" not in caplog.text
 
 
 class TestAXEExtractorCall:

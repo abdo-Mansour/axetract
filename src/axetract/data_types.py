@@ -56,6 +56,11 @@ class AXESample(BaseModel):
 
     status: Status = Status.PENDING
 
+    @property
+    def effective_query(self) -> Optional[Union[str, Type[BaseModel], dict]]:
+        """Return the schema when set, otherwise the natural-language query."""
+        return self.schema_model if self.schema_model is not None else self.query
+
 
 class AXEResult(BaseModel):
     """Final extraction result returned to the user.
